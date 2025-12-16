@@ -111,6 +111,7 @@ def dashboard_summary(request):
     total_sales_count = Sale.objects.count()
     total_purchases_count = Purchase.objects.count()
     total_customers = Customer.objects.count()
+    total_categories = Category.objects.count()
     total_suppliers = Supplier.objects.count()
     total_items = Item.objects.count()
 
@@ -196,6 +197,7 @@ def dashboard_summary(request):
                 "monthly_amount": monthly_purchases_amount,
             },
             "customers": total_customers,
+            "categories": total_categories,
             "suppliers": total_suppliers,
             "items": total_items,
         },
