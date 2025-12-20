@@ -41,7 +41,7 @@ INSTALLED_APPS = [
     'corsheaders',
 
     # Local Apps
-    'core',
+    'core.apps.CoreConfig',  
 ]
 
 # Use custom User model

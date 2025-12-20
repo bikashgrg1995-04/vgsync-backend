@@ -15,6 +15,6 @@ REM Activate virtual environment (edit 'venv' if your folder name differs)
 call env\Scripts\activate
 
 REM Run Django server on all network interfaces (so mobile can access via IP)
-python manage.py runserver 0.0.0.0:8000
+python manage.py runserver 127.0.0.1:8000
 
 pause

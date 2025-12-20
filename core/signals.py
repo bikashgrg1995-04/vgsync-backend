@@ -1,85 +1,61 @@
+from django.db.models.signals import post_save, pre_delete, post_delete
+from django.dispatch import receiver
+from datetime import timedelta
+from .models import OrderItem
+
+from .models import Sale, FollowUpDashboard
+
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
-from django.db import transaction
-from django.utils import timezone
 from datetime import timedelta
-from .models import Sale, SaleItem, FollowUp, PurchaseItem
+from .models import Sale, FollowUpDashboard
 
 FOLLOW_UP_INTERVAL_DAYS = 30
+FOLLOW_UP_KM_THRESHOLD = 1500
 
-# ------------------ SALE & STOCK ------------------
-
-@receiver(post_save, sender=SaleItem)
-def adjust_stock_on_sale_item(sender, instance, created, **kwargs):
-    """
-    Adjust stock when a SaleItem is created or updated.
-    Negative quantity for sold items.
-    """
-    # For atomic safety
-    with transaction.atomic():
-        if created:
-            instance.item.adjust_stock(-instance.quantity)
-        else:
-            old = SaleItem.objects.get(pk=instance.pk)
-            diff = instance.quantity - old.quantity
-            instance.item.adjust_stock(-diff)
-
-@receiver(pre_delete, sender=SaleItem)
-def restore_stock_on_sale_item_delete(sender, instance, **kwargs):
-    """Restore stock when a SaleItem is deleted."""
-    with transaction.atomic():
-        instance.item.adjust_stock(instance.quantity)
-
-
-# ------------------ FOLLOW-UP ------------------
+# ------------------ Create or Update Follow-up ------------------
 @receiver(post_save, sender=Sale)
-def sync_followup_on_sale(sender, instance, created, **kwargs):
+def manage_followup(sender, instance, created, **kwargs):
     """
-    Create, update, or delete follow-up based on Sale changes.
+    Create or update a follow-up for servicing sales.
+    Delete follow-up if sale is not servicing.
     """
     if instance.is_servicing:
-        # Use defaults to ensure NOT NULL fields exist
-        followup, created_followup = FollowUp.objects.get_or_create(
+        follow_up_date = (instance.sale_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS)).date()
+        expected_km = instance.km_driven + FOLLOW_UP_KM_THRESHOLD
+
+        # Update or create follow-up
+        FollowUpDashboard.objects.update_or_create(
             sale=instance,
             defaults={
-                'service_date': instance.sale_date or timezone.now().date(),
-                'follow_up_date': (instance.sale_date or timezone.now().date()) + timedelta(days=FOLLOW_UP_INTERVAL_DAYS),
-                'completed': False,
-                'remarks': f"Auto-generated follow-up for Sale #{instance.id}"
+                'customer_name': instance.customer_name or "Unknown",
+                'contact_no': instance.contact_no,
+                'vehicle': instance.vehicle_model,
+                'delivery_date': instance.sale_date.date(),
+                'follow_up_date': follow_up_date,
+                'expected_km': expected_km,
+                'remarks': "Auto-created servicing follow-up"
             }
         )
-
-        if not created_followup:
-            # Update fields if FollowUp already existed
-            followup.service_date = instance.sale_date or followup.service_date
-            followup.follow_up_date = followup.service_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS)
-            followup.completed = False
-            followup.save()
     else:
-        FollowUp.objects.filter(sale=instance).delete()
+        # Delete follow-up if sale is not servicing
+        FollowUpDashboard.objects.filter(sale=instance).delete()
 
 
+# ------------------ Delete Follow-up on Sale deletion ------------------
 @receiver(pre_delete, sender=Sale)
 def delete_followup_on_sale_delete(sender, instance, **kwargs):
-    """Delete follow-up when Sale is deleted."""
-    FollowUp.objects.filter(sale=instance).delete()
+    """
+    Ensure follow-up is deleted when sale is deleted.
+    """
+    FollowUpDashboard.objects.filter(sale=instance).delete()
 
 
-# ------------------ PURCHASE STOCK ------------------
 
-@receiver(post_save, sender=PurchaseItem)
-def adjust_stock_on_purchase(sender, instance, created, **kwargs):
-    """Add purchased quantity to stock."""
-    with transaction.atomic():
-        if created:
-            instance.item.adjust_stock(instance.quantity)
-        else:
-            old = PurchaseItem.objects.get(pk=instance.pk)
-            diff = instance.quantity - old.quantity
-            instance.item.adjust_stock(diff)
+@receiver(post_save, sender=OrderItem)
+def update_order_totals_on_save(sender, instance, **kwargs):
+    instance.order.update_totals()
 
-@receiver(pre_delete, sender=PurchaseItem)
-def remove_stock_on_purchase_delete(sender, instance, **kwargs):
-    """Remove purchased stock when deleted."""
-    with transaction.atomic():
-        instance.item.adjust_stock(-instance.quantity)
+@receiver(post_delete, sender=OrderItem)
+def update_order_totals_on_delete(sender, instance, **kwargs):
+    instance.order.update_totals()
