@@ -131,10 +131,6 @@ class PurchaseItem(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Adjust stock
-        #qty_change = self.quantity - old_qty
-       # self.item.adjust_stock(qty_change)
-
         # Update item pricing + VAT
         self.item.purchase_price = self.price
         self.item.sale_price = self.sale_price
@@ -268,9 +264,6 @@ class SaleItem(models.Model):
 
     def total_price(self):
         return self.quantity * self.price
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)

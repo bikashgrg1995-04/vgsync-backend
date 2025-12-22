@@ -237,59 +237,6 @@ class PurchaseSerializer(serializers.ModelSerializer):
 
 #         return data
 
-# ------------------ Stock Sale Serializer ------------------
-class StockSaleSerializer(serializers.ModelSerializer):
-    items = SaleItemSerializer(many=True)
-    total_amount = serializers.FloatField(read_only=True)
-    remaining_amount = serializers.FloatField(read_only=True)
-    is_paid = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = Sale
-        fields = [
-            'id', 'sale_date', 'customer_name', 'contact_no', 'vehicle_model',
-            'is_servicing', 'bill_no', 'technician_name', 'remarks',
-            'paid_amount', 'remaining_amount', 'is_paid', 'paid_from',
-            'handled_by', 'items', 'labour_charge'
-        ]
-
-    @transaction.atomic
-    def create(self, validated_data):
-        items_data = validated_data.pop('items', [])
-        paid_amount = validated_data.pop('paid_amount', 0)
-
-        sale = Sale.objects.create(**validated_data)
-        sale.paid_amount = paid_amount
-
-        total = 0
-        for item_data in items_data:
-            sale_item = SaleItem.objects.create(sale=sale, **item_data)
-            total += sale_item.total_price()
-            stock = sale_item.item
-            stock.stock = max(stock.stock - sale_item.quantity, 0)
-            stock.save(update_fields=['stock'])
-
-        sale.total_amount = total + (sale.labour_charge or 0)
-        sale.update_payment_status()
-        sale.save()
-        return sale
-
-    @transaction.atomic
-    def update(self, instance, validated_data):
-        # Only update payment
-        new_payment = validated_data.get('paid_amount', 0)
-        paid_from = validated_data.get('paid_from', None)
-
-        if new_payment:
-            instance.paid_amount += new_payment
-        if paid_from:
-            instance.paid_from = paid_from
-
-        instance.update_payment_status()
-        instance.save()
-        return instance
-
-
 # ---------------- STAFF ----------------
 class StaffSerializer(serializers.ModelSerializer):
     class Meta:
@@ -340,29 +287,29 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 # ------------------ Stock Sale Serializer ------------------
+# ------------------ Stock Sale Serializer ------------------
 class StockSaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
     total_amount = serializers.FloatField(read_only=True)
     remaining_amount = serializers.FloatField(read_only=True)
-    is_paid = serializers.SerializerMethodField()  # ✅ fixed
+    is_paid = serializers.SerializerMethodField()
 
     class Meta:
         model = Sale
         fields = [
             'id', 'sale_date', 'customer_name', 'contact_no',
             'is_servicing', 'bill_no', 'remarks',
-            'paid_amount', 'remaining_amount', 'total_amount', 'is_paid', 'paid_from',
+            'paid_amount', 'remaining_amount', 'total_amount',
+            'is_paid', 'paid_from',
             'handled_by', 'items', 'labour_charge'
         ]
 
     def get_is_paid(self, obj):
-        """Return payment status as string"""
         if obj.paid_amount >= (obj.total_amount or 0):
             return 'paid'
         elif obj.paid_amount > 0:
             return 'partial'
-        else:
-            return 'not_paid'
+        return 'not_paid'
 
     @transaction.atomic
     def create(self, validated_data):
@@ -375,10 +322,8 @@ class StockSaleSerializer(serializers.ModelSerializer):
         total = 0
         for item_data in items_data:
             sale_item = SaleItem.objects.create(sale=sale, **item_data)
-            total += sale_item.total_price()
-            stock = sale_item.item
-            stock.stock = max(stock.stock - sale_item.quantity, 0)
-            stock.save(update_fields=['stock'])
+            total += sale_item.quantity * sale_item.price
+            # ❌ NO STOCK TOUCH HERE
 
         sale.total_amount = total + (sale.labour_charge or 0)
         sale.remaining_amount = max(sale.total_amount - sale.paid_amount, 0)
@@ -390,41 +335,33 @@ class StockSaleSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop('items', None)
         new_paid_amount = validated_data.get('paid_amount', None)
 
-        # Update basic fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # Update nested SaleItems
         if items_data is not None:
             existing_items = {item.id: item for item in instance.items.all()}
 
             for item_data in items_data:
-                item_id = item_data.get('id', None)
+                item_id = item_data.get('id')
                 if item_id and item_id in existing_items:
-                    # Update existing item
                     sale_item = existing_items.pop(item_id)
                     sale_item.quantity = item_data.get('quantity', sale_item.quantity)
                     sale_item.price = item_data.get('price', sale_item.price)
                     sale_item.save()
                 else:
-                    # Create new item
                     SaleItem.objects.create(sale=instance, **item_data)
 
-            # Delete removed items
-            for removed_item in existing_items.values():
-                removed_item.delete()
+            for removed in existing_items.values():
+                removed.delete()
 
-        # Update payment if provided
         if new_paid_amount is not None:
             instance.paid_amount = new_paid_amount
 
-        # Recalculate totals
-        total = sum(item.quantity * item.price for item in instance.items.all())
+        total = sum(i.quantity * i.price for i in instance.items.all())
         instance.total_amount = total + (instance.labour_charge or 0)
         instance.remaining_amount = max(instance.total_amount - (instance.paid_amount or 0), 0)
         instance.save()
         return instance
-
 
 # ------------------ Service Sale Serializer ------------------
 class ServiceSaleSerializer(StockSaleSerializer):
@@ -432,41 +369,42 @@ class ServiceSaleSerializer(StockSaleSerializer):
     post_service_feedback_date = serializers.DateField(read_only=True)
 
     class Meta(StockSaleSerializer.Meta):
-# include all fields you want in API
-        fields = StockSaleSerializer.Meta.fields + [
-            
-            'job_card_no',
-            'bike_registration_no',
-            'vehicle_color',
-            'km_driven',
-            'is_free_servicing',
-            'is_repair_job',
-            'is_accident',
-            'is_warranty_job',
-            'job_done_on_vehicle',
-            'received_date',
-            'delivery_date',
-            'follow_up_date',
-            'post_service_feedback_date',
-        ]
+    # include all fields you want in API
+            fields = StockSaleSerializer.Meta.fields + [
+                
+                'job_card_no',
+                'bike_registration_no',
+                'vehicle_color',
+                'km_driven',
+                'is_free_servicing',
+                'is_repair_job',
+                'is_accident',
+                'is_warranty_job',
+                'job_done_on_vehicle',
+                'received_date',
+                'delivery_date',
+                'follow_up_date',
+                'post_service_feedback_date',
+                
+            ]
 
     @transaction.atomic
     def create(self, validated_data):
-        sale = super().create(validated_data)
-        if sale.delivery_date:
-            sale.follow_up_date = sale.delivery_date + timedelta(days=30)
-            sale.post_service_feedback_date = sale.delivery_date + timedelta(days=3)
-            sale.save(update_fields=['follow_up_date', 'post_service_feedback_date'])
-        return sale
+            sale = super().create(validated_data)
+            if sale.delivery_date:
+                sale.follow_up_date = sale.delivery_date + timedelta(days=30)
+                sale.post_service_feedback_date = sale.delivery_date + timedelta(days=3)
+                sale.save(update_fields=['follow_up_date', 'post_service_feedback_date'])
+            return sale
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        instance = super().update(instance, validated_data)
-        if instance.delivery_date:
-            instance.follow_up_date = instance.delivery_date + timedelta(days=30)
-            instance.post_service_feedback_date = instance.delivery_date + timedelta(days=3)
-            instance.save(update_fields=['follow_up_date', 'post_service_feedback_date'])
-        return instance
+            instance = super().update(instance, validated_data)
+            if instance.delivery_date:
+                instance.follow_up_date = instance.delivery_date + timedelta(days=30)
+                instance.post_service_feedback_date = instance.delivery_date + timedelta(days=3)
+                instance.save(update_fields=['follow_up_date', 'post_service_feedback_date'])
+            return instance
 
 
 # ---------------- FOLLOW-UP DASHBOARD ----------------
