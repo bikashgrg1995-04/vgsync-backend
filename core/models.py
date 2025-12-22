@@ -11,40 +11,43 @@ def upload_to_item(instance, filename):
 class User(AbstractUser):
     ROLE_CHOICES = (
         ('admin', 'Admin'),
-        ('staff', 'Staff'),
-        ('technician', 'Technician'),
+        ('accountant', 'Accountant'),
+        ('staff', 'Staff'),  # fallback / future
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='staff')
+
+    role = models.CharField(
+        max_length=20,
+        choices=ROLE_CHOICES,
+        default='staff'
+    )
 
     def __str__(self):
         return f"{self.username} ({self.role})"
 
-# ------------------ Technician & Staff ------------------
-class Technician(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        limit_choices_to={'role': 'technician'},
-        related_name='technician_profile',
-        null=True  # Now non-nullable
-    )
-    specialization = models.CharField(max_length=100, blank=True, null=True)
-
-    def __str__(self):
-        return self.user.username
-
+# ------------------ Staff ------------------
+# models.py
 class Staff(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        limit_choices_to={'role': 'staff'},
-        related_name='staff_profile',
-        null=True  # Now non-nullable
+    DESIGNATION_CHOICES = (
+        ('admin', 'Admin'),
+        ('accountant', 'Accountant'),
+        ('technician', 'Technician'),
+        ('helper', 'Helper'),
+        ('sales', 'Sales'),
+        ('other', 'Other'),
     )
-    designation = models.CharField(max_length=100, blank=True, null=True)
 
-    def __str__(self):
-        return self.user.username
+    # Remove this field completely
+    # user = models.OneToOneField(User, ...)
+
+    name = models.CharField(max_length=100)
+    designation = models.CharField(max_length=30, choices=DESIGNATION_CHOICES)
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    joined_date = models.DateField(blank=True, null=True)
+
+
 
 # ------------------ Core Entities ------------------
 class Category(models.Model):
@@ -144,38 +147,117 @@ class PurchaseItem(models.Model):
         super().delete(*args, **kwargs)
 
 # ------------------ Sale ------------------
-from django.db import models
-from django.utils import timezone
 from django.contrib.auth import get_user_model
-from datetime import timedelta
 
 User = get_user_model()
 
+
 class Sale(models.Model):
     sale_date = models.DateTimeField(default=timezone.now)
+
+    # Basic fields (for both stock and service sales)
     customer_name = models.CharField(max_length=100, blank=True, null=True)
     contact_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_model = models.CharField(max_length=50, blank=True, null=True)
-
     is_servicing = models.BooleanField(default=False)
-    km_driven = models.IntegerField(default=0)
+    km_driven = models.IntegerField(default=0, blank=True, null=True)
 
-    total_amount = models.FloatField(default=0)
+    # Service-specific fields
+    job_card_no = models.CharField(max_length=50, blank=True, null=True)
+    bike_registration_no = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_color = models.CharField(max_length=30, blank=True, null=True)
+    received_date = models.DateField(blank=True, null=True)
+    delivery_date = models.DateField(blank=True, null=True)
+    bill_no = models.CharField(max_length=50, blank=True, null=True)
+    technician_name = models.CharField(max_length=100, blank=True, null=True)
+    is_free_servicing = models.BooleanField(default=False)
+    is_repair_job = models.BooleanField(default=False)
+    is_accident = models.BooleanField(default=False)
+    is_warranty_job = models.BooleanField(default=False)
+    post_service_feedback_date = models.DateField(blank=True, null=True)
+    follow_up_date = models.DateField(blank=True, null=True)
+    post_service_feedback_date = models.DateField(blank=True, null=True)
+    job_done_on_vehicle = models.TextField(blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+
+    # Financial fields
+    total_amount = models.FloatField(default=0, blank=True, null=True)
+    labour_charge = models.FloatField(default=0, blank=True, null=True)
+    paid_amount = models.FloatField(default=0, blank=True, null=True)
+    remaining_amount = models.FloatField(default=0, blank=True, null=True)
+
+    PAID_STATUS_CHOICES = [
+        ('not_paid', 'Not Paid'),
+        ('partial', 'Partially Paid'),
+        ('paid', 'Paid')
+    ]
+    is_paid = models.TextField(blank=True, null=True)  # <- add default
+
+    PAID_FROM_CHOICES = [
+        ('cash', 'Cash'),
+        ('esewa', 'eSewa'),
+        ('both', 'Both')
+    ]
+    paid_from = models.CharField(max_length=20, choices=PAID_FROM_CHOICES, blank=True, null=True)
+
     handled_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
-        return f"Sale #{self.id}"
+        return f"Sale #{self.id} - {'Service' if self.is_servicing else 'Stock'}"
     
-    def delete(self, *args, **kwargs):
-        # Restore stock for all SaleItems
-        for item in self.items.all():
-            item.delete()  # SaleItem.delete() restores stock
+    def update_payment_status(self):
+        """Update remaining_amount and is_paid based on paid_amount and total_amount"""
+        self.remaining_amount = max(self.total_amount - self.paid_amount, 0)
+        if self.paid_amount >= self.total_amount:
+            self.is_paid = 'paid'
+        elif self.paid_amount > 0:
+            self.is_paid = 'partial'
+        else:
+            self.is_paid = 'not_paid'
 
-        # Delete follow-up if exists
-        FollowUpDashboard.objects.filter(sale=self).delete()
 
-        # Delete sale itself
-        super().delete(*args, **kwargs)
+    def calculate_totals(self, new_paid_amount=None):
+        """
+        Calculate totals from related SaleItems
+        - total_amount = sum(items) + labour_charge
+        - remaining_amount = total_amount - paid_amount
+        - is_paid status
+        """
+        items_total = sum([item.quantity * item.price for item in self.items.all()])
+        total_amount = items_total + (self.labour_charge or 0)
+        paid_amount = new_paid_amount if new_paid_amount is not None else self.paid_amount or 0
+        remaining_amount = max(total_amount - paid_amount, 0)
+
+        
+        is_paid = self.update_payment_status()
+        
+
+        return total_amount, remaining_amount, is_paid
+
+    def save(self, *args, **kwargs):
+        # First save to get PK if new
+        super().save(*args, **kwargs)
+
+        # Auto-calc service dates
+        if self.is_servicing and self.delivery_date:
+            if not self.post_service_feedback_date:
+                self.post_service_feedback_date = self.delivery_date + timedelta(days=3)
+            if not self.follow_up_date:
+                self.follow_up_date = self.delivery_date + timedelta(days=30)
+
+        # Recalculate totals using actual items
+        total_amount, remaining_amount, is_paid = self.calculate_totals()
+        self.total_amount = total_amount
+        self.remaining_amount = remaining_amount
+        self.is_paid = is_paid
+
+        super().save(update_fields=[
+            'total_amount',
+            'remaining_amount',
+            'is_paid',
+            'post_service_feedback_date',
+            'follow_up_date'
+        ])
 
 
 class SaleItem(models.Model):
@@ -188,22 +270,11 @@ class SaleItem(models.Model):
         return self.quantity * self.price
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        old_qty = 0
-
-        if not is_new:
-            old_qty = SaleItem.objects.get(pk=self.pk).quantity
-
         super().save(*args, **kwargs)
 
-        # Adjust stock
-        qty_change = self.quantity - old_qty
-        self.item.adjust_stock(-qty_change)
-
     def delete(self, *args, **kwargs):
-        # Restore stock when deleted
-        self.item.adjust_stock(self.quantity)
         super().delete(*args, **kwargs)
+
 
 
 # ------------------ Order ------------------
@@ -243,23 +314,20 @@ class OrderItem(models.Model):
 
 # ------------------ Follow-Up Dashboard ------------------
 class FollowUpDashboard(models.Model):
-    sale = models.OneToOneField(
-        Sale,
-        on_delete=models.CASCADE,
-        related_name='followup'
-    )
+    sale = models.OneToOneField(Sale, on_delete=models.CASCADE)
+    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
     customer_name = models.CharField(max_length=100)
     contact_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle = models.CharField(max_length=50, blank=True, null=True)
 
-    delivery_date = models.DateField(default=timezone.now)
-    follow_up_date = models.DateField(default=timezone.now)
-    expected_km = models.IntegerField(default=1500, help_text="KM at which follow-up is required")
+    delivery_date = models.DateField(null=True, blank=True)
 
+    post_service_feedback_date = models.DateField(null=True, blank=True)  # ✅ ADD
+    follow_up_date = models.DateField()
+
+    expected_km = models.PositiveIntegerField()
     remarks = models.TextField(blank=True, null=True)
 
     class Meta:
         ordering = ['follow_up_date']
-
-    def __str__(self):
-        return f"Follow-up for {self.customer_name}"

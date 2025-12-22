@@ -3,19 +3,16 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
-    StaffCreateView,
     StockViewSet,
     SupplierViewSet,
     CategoryViewSet,
-    StockViewSet,
     PurchaseViewSet,
     SaleViewSet,
     FollowUpDashboardViewSet,
     UserViewSet,
     OrderViewSet,
-    TechnicianViewSet,
-    StaffViewSet,
     dashboard_summary,
+    StaffViewSet,
 )
 
 router = DefaultRouter()
@@ -24,40 +21,31 @@ router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
 
 # ---------------- Supplier ----------------
-router.register(r'suppliers', SupplierViewSet)
+router.register(r'suppliers', SupplierViewSet, basename='supplier')
 
 # ---------------- Category ----------------
-router.register(r'categories', CategoryViewSet)
+router.register(r'categories', CategoryViewSet, basename='category')
 
-# ---------------- Stock (Read-only) ----------------
+# ---------------- Stock ----------------
 router.register(r'stocks', StockViewSet, basename='stock')
 
-# # ---------------- Item CRUD ----------------
-# router.register(r'items', StockViewSet, basename='item')
-
 # ---------------- Purchase ----------------
-router.register(r'purchases', PurchaseViewSet)
+router.register(r'purchases', PurchaseViewSet, basename='purchase')
 
 # ---------------- Sale ----------------
-router.register(r'sales', SaleViewSet)
+router.register(r'sales', SaleViewSet, basename='sale')
 
 # ---------------- FollowUp Dashboard ----------------
 router.register(r'followups', FollowUpDashboardViewSet, basename='followup-dashboard')
 
 # ---------------- Orders ----------------
-router.register(r'orders', OrderViewSet)
-
-# ---------------- Technicians ----------------
-router.register(r'technicians', TechnicianViewSet)
+router.register(r'orders', OrderViewSet, basename='order')
 
 # ---------------- Staff ----------------
-router.register(r'staffs', StaffViewSet)
+router.register(r'staffs', StaffViewSet, basename='staff')
 
 urlpatterns = [
     path('', include(router.urls)),
-
-    # Staff creation endpoint
-    path('staff/create/', StaffCreateView.as_view(), name='create_staff'),
 
     # JWT Authentication
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
