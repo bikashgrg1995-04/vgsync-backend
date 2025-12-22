@@ -171,71 +171,71 @@ class PurchaseSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class SaleReadSerializer(serializers.ModelSerializer):
-    items = SaleItemSerializer(many=True, read_only=True)
+# class SaleReadSerializer(serializers.ModelSerializer):
+#     items = SaleItemSerializer(many=True, read_only=True)
 
-    class Meta:
-        model = Sale
-        fields = [
-            # ---- common ----
-            'id',
-            'sale_date',
-            'customer_name',
-            'contact_no',
-            'vehicle_model',
-            'is_servicing',
-            'bill_no',
-            'technician_name',
-            'remarks',
-            'paid_amount',
-            'remaining_amount',
-            'total_amount',
-            'is_paid',
-            'paid_from',
-            'handled_by',
-            'items',
-            'labour_charge',
-            'received_date',
-            'delivery_date',
+#     class Meta:
+#         model = Sale
+#         fields = [
+#             # ---- common ----
+#             'id',
+#             'sale_date',
+#             'customer_name',
+#             'contact_no',
+#             'vehicle_model',
+#             'is_servicing',
+#             'bill_no',
+#             'technician_name',
+#             'remarks',
+#             'paid_amount',
+#             'remaining_amount',
+#             'total_amount',
+#             'is_paid',
+#             'paid_from',
+#             'handled_by',
+#             'items',
+#             'labour_charge',
+#             'received_date',
+#             'delivery_date',
 
-            # ---- service fields ----
-            'follow_up_date',
-            'post_service_feedback_date',
-            'job_card_no',
-            'bike_registration_no',
-            'vehicle_color',
-            'km_driven',
-            'is_free_servicing',
-            'is_repair_job',
-            'is_accident',
-            'is_warranty_job',
-            'job_done_on_vehicle',
-        ]
+#             # ---- service fields ----
+#             'follow_up_date',
+#             'post_service_feedback_date',
+#             'job_card_no',
+#             'bike_registration_no',
+#             'vehicle_color',
+#             'km_driven',
+#             'is_free_servicing',
+#             'is_repair_job',
+#             'is_accident',
+#             'is_warranty_job',
+#             'job_done_on_vehicle',
+#         ]
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
+#     def to_representation(self, instance):
+#         data = super().to_representation(instance)
 
-        # ❌ hide service fields for stock sale
-        if not instance.is_servicing:
-            service_fields = [
-                'follow_up_date',
-                'post_service_feedback_date',
-                'job_card_no',
-                'bike_registration_no',
-                'vehicle_color',
-                'km_driven',
-                'is_free_servicing',
-                'is_repair_job',
-                'is_accident',
-                'is_warranty_job',
-                'job_done_on_vehicle',
-                'received_date',
-                'delivery_date',
-            ]
-            for field in service_fields:
-                data.pop(field, None)
+#         # ❌ hide service fields for stock sale
+#         if not instance.is_servicing:
+#             service_fields = [
+#                 'follow_up_date',
+#                 'post_service_feedback_date',
+#                 'job_card_no',
+#                 'bike_registration_no',
+#                 'vehicle_color',
+#                 'km_driven',
+#                 'is_free_servicing',
+#                 'is_repair_job',
+#                 'is_accident',
+#                 'is_warranty_job',
+#                 'job_done_on_vehicle',
+#                 'received_date',
+#                 'delivery_date',
+#             ]
+#             for field in service_fields:
+#                 data.pop(field, None)
 
-        return data
+#         return data
 
 # ------------------ Stock Sale Serializer ------------------
 class StockSaleSerializer(serializers.ModelSerializer):
@@ -475,15 +475,19 @@ class FollowUpDashboardSerializer(serializers.ModelSerializer):
         model = FollowUpDashboard
         fields = [
             'id',
-            'sale',  # optional, if you want to link to the sale
+            'sale',  # optional, link to sale
             'customer_name',
             'contact_no',
             'vehicle',
             'delivery_date',
             'post_service_feedback_date',
             'follow_up_date',
-            'expected_km',
             'remarks',
             'assigned_to',
+            'status',      # added
+            'reason',      # added termination reason
+            'created_at',  # optional, for dashboard display
+            'updated_at'
         ]
+        read_only_fields = ['status', 'reason', 'created_at']
 

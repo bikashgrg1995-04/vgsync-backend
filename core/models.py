@@ -314,6 +314,11 @@ class OrderItem(models.Model):
 
 # ------------------ Follow-Up Dashboard ------------------
 class FollowUpDashboard(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("completed", "Completed"),
+        ("terminated", "Terminated"),
+    )
     sale = models.OneToOneField(Sale, on_delete=models.CASCADE)
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -325,9 +330,23 @@ class FollowUpDashboard(models.Model):
 
     post_service_feedback_date = models.DateField(null=True, blank=True)  # ✅ ADD
     follow_up_date = models.DateField()
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="pending"
+    )
+    terminated_at = models.DateTimeField(null=True, blank=True)
+    reason = models.TextField(null=True, blank=True)  # ✅ add this
 
-    expected_km = models.PositiveIntegerField()
     remarks = models.TextField(blank=True, null=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    def terminate(self, reason=None):
+        self.status = "terminated"
+        self.terminated_at = timezone.now()
+        if reason:
+            self.reason = reason
+        self.save(update_fields=["status", "terminated_at", "reason"])
 
     class Meta:
         ordering = ['follow_up_date']

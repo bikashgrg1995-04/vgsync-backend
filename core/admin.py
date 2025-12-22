@@ -89,13 +89,14 @@ class FollowUpDashboardAdmin(admin.ModelAdmin):
     list_display = (
         'customer_name',
         'vehicle',
+        'follow_up_date',
         'post_service_feedback_date',
-        'follow_up_date',        
-        'expected_km',
-        'assigned_to'
+        'assigned_to',
+        'status',   # added
+        'reason',   # added
     )
     ordering = ('follow_up_date',)
-    list_filter = ('follow_up_date', 'assigned_to')
+    list_filter = ('follow_up_date', 'assigned_to', 'status')  # include status in filter
     search_fields = ('customer_name', 'contact_no')
     list_select_related = ('assigned_to',)
 

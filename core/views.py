@@ -21,6 +21,7 @@ from .serializers import (
         FollowUpDashboardSerializer,
     StaffSerializer, OrderSerializer, UserSerializer
 )
+from rest_framework.decorators import action
 
 
 # =====================================================
@@ -166,11 +167,27 @@ class ServiceSaleViewSet(viewsets.ModelViewSet):
 # =====================================================
 # FOLLOW-UP DASHBOARD
 # =====================================================
-class FollowUpDashboardViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = FollowUpDashboard.objects.all().order_by('follow_up_date')
+class FollowUpDashboardViewSet(viewsets.ModelViewSet):
+    queryset = FollowUpDashboard.objects.all()
     serializer_class = FollowUpDashboardSerializer
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     ordering_fields = ['follow_up_date']
+
+    @action(detail=True, methods=["post"])
+    def terminate(self, request, pk=None):
+        """
+        Terminate a follow-up so it stops showing in dashboard.
+        Optional: provide a reason in POST data.
+        """
+        followup = self.get_object()
+        if followup.status == "terminated":
+            return Response({"detail": "Follow-up already terminated"}, status=status.HTTP_400_BAD_REQUEST)
+
+        reason: str | None = request.data.get("reason", None)  # <-- get reason safely
+        followup.terminate(reason=reason)
+
+        return Response({"detail": "Follow-up terminated successfully"}, status=status.HTTP_200_OK)
 
 
 # =====================================================
@@ -215,8 +232,8 @@ def dashboard_summary(request):
     stock_threshold = 5
     low_stock_items = Stock.objects.filter(stock__lt=stock_threshold).values('id', 'name', 'stock', 'category__name')
 
-    upcoming_followups = FollowUpDashboard.objects.order_by('follow_up_date').values(
-        'id', 'follow_up_date', 'customer_name', 'vehicle', 'remarks'
+    upcoming_followups = FollowUpDashboard.objects.filter(status="pending").order_by("follow_up_date").values(
+        "id", "customer_name", "vehicle", "follow_up_date", "remarks", "created_at", 'updated_at'
     )
 
     return Response({
