@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.db import transaction
 from datetime import date, timedelta
 from .models import (
-    Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
+    Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
     Supplier, Staff, Category, Order, OrderItem, User
 )
 
@@ -429,3 +429,35 @@ class FollowUpDashboardSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['status', 'reason', 'created_at']
 
+
+class SalaryTrackerSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.name', read_only=True)
+
+    class Meta:
+        model = SalaryTracker
+        fields = [
+            'id',
+            'staff',
+            'staff_name',
+            'date',
+            'total_salary',
+            'paid_amount',
+            'remaining_amount',
+            'status',
+            'payment_mode',
+            'note',
+        ]
+        read_only_fields = ['remaining_amount', 'status']
+
+
+class SalaryTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalaryTransaction
+        fields = '__all__'
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    expense_date = serializers.DateField()  # ensures date only
+    class Meta:
+        model = Expense
+        fields = '__all__'

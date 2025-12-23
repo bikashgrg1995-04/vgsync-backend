@@ -11,17 +11,18 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from core.permissions import IsAdminOrReadOnlyForStaff
 from .models import (
-    Supplier, Category, Stock, Purchase, PurchaseItem,
+    Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock, Purchase, PurchaseItem,
     Sale, SaleItem, FollowUpDashboard,
     Order, OrderItem, Staff, User
 )
 from .serializers import (
-    SupplierSerializer, CategorySerializer, StockSerializer,
+    ExpenseSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SupplierSerializer, CategorySerializer, StockSerializer,
     PurchaseSerializer, StockSaleSerializer, ServiceSaleSerializer,
         FollowUpDashboardSerializer,
     StaffSerializer, OrderSerializer, UserSerializer
 )
 from rest_framework.decorators import action
+from .services.stock_dashboard import get_stock_dashboard
 
 
 # =====================================================
@@ -260,10 +261,54 @@ def dashboard_summary(request):
     })
 
 
+@api_view(["GET"])
+def monthly_stock_dashboard(request):
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+
+    if not month:
+        return Response(
+            {"detail": "month is required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    data = get_stock_dashboard(year=year, month=month)
+    return Response(data)
+
+
+@api_view(["GET"])
+def yearly_stock_dashboard(request):
+    year = request.GET.get("year")
+
+    data = get_stock_dashboard(year=year)
+    return Response(data)
+
+
 # =====================================================
 # ORDER
 # =====================================================
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# ---------------- SalaryTracker ----------------
+class SalaryTrackerViewSet(viewsets.ModelViewSet):
+    queryset = SalaryTracker.objects.all()
+    serializer_class = SalaryTrackerSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# ---------------- SalaryTransaction ----------------
+class SalaryTransactionViewSet(viewsets.ModelViewSet):
+    queryset = SalaryTransaction.objects.all()
+    serializer_class = SalaryTransactionSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# ---------------- Expense ----------------
+class ExpenseViewSet(viewsets.ModelViewSet):
+    queryset = Expense.objects.all()
+    serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated]

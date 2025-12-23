@@ -25,7 +25,6 @@ class User(AbstractUser):
         return f"{self.username} ({self.role})"
 
 # ------------------ Staff ------------------
-# models.py
 class Staff(models.Model):
     DESIGNATION_CHOICES = (
         ('admin', 'Admin'),
@@ -36,17 +35,130 @@ class Staff(models.Model):
         ('other', 'Other'),
     )
 
-    # Remove this field completely
-    # user = models.OneToOneField(User, ...)
+    SALARY_MODE_CHOICES = (
+        ('direct', 'Direct Payment'),   # technician, accountant
+        ('salary', 'Salary Based'),     # helper, admin, sales
+    )
 
     name = models.CharField(max_length=100)
     designation = models.CharField(max_length=30, choices=DESIGNATION_CHOICES)
+    salary_mode = models.CharField(max_length=10, choices=SALARY_MODE_CHOICES, default="direct")
     phone = models.CharField(max_length=50, blank=True, null=True)
     address = models.TextField(blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     joined_date = models.DateField(blank=True, null=True)
 
+    def __str__(self):
+        return self.name
+
+
+# ------------------ Salary Tracker ------------------
+class SalaryTracker(models.Model):
+    staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    date = models.DateField(auto_now_add=True)
+    total_salary = models.FloatField()
+    paid_amount = models.FloatField(default=0)
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('partial', 'Partial'),
+        ('paid', 'Paid'),
+    ]
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+
+    PAYMENT_MODE_CHOICES = [
+        ('cash','Cash'),
+        ('online','Online')
+    ]
+    payment_mode = models.CharField(max_length=10, choices=PAYMENT_MODE_CHOICES, blank=True, null=True)
+    note = models.TextField(blank=True, null=True)
+
+    @property
+    def remaining_amount(self):
+        return self.total_salary - self.paid_amount
+
+    def save(self, *args, **kwargs):
+        if self.paid_amount >= self.total_salary:
+            self.status = 'paid'
+        elif self.paid_amount > 0:
+            self.status = 'partial'
+        else:
+            self.status = 'pending'
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        staff_name = self.staff.name if self.staff else "No Staff"
+        return f"{staff_name} - {self.date} - {self.status}"
+
+
+# ------------------ Salary Transaction ------------------
+class SalaryTransaction(models.Model):
+
+    TRANSACTION_TYPE_CHOICES = [
+       ('payment','Purchase payment'),
+       ('advance', 'Advance'),
+       ('salary','Salary'),
+       ('operational', 'operational'),
+       ('saving', 'Saving'),
+       ('others', 'Others')
+    ]
+
+    salary_tracker = models.ForeignKey(
+        SalaryTracker,
+        on_delete=models.CASCADE,
+        related_name='transactions',
+        null=True, blank=True
+    )
+    staff = models.ForeignKey(
+        Staff,
+        on_delete=models.CASCADE,
+        related_name='salary_transactions'
+    )
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
+    amount = models.FloatField()
+    payment_date = models.DateField(default=timezone.now)
+    payment_mode = models.CharField(
+        max_length=10,
+        choices=[('cash','Cash'),('online','Online')],
+        blank=True, null=True
+    )
+    note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.staff.name} - {self.transaction_type} - {self.amount}"
+
+
+# ------------------ Expense ------------------
+def today_date():
+    return timezone.now().date()
+
+class Expense(models.Model):
+    EXPENSE_TYPE_CHOICES = [
+        ('operational','Operational'),
+        ('other','Other')
+    ]
+    PAYMENT_MODE_CHOICES = [
+        ('cash','Cash'),
+        ('online','Online')
+    ]
+
+    title = models.CharField(max_length=150)
+    expense_type = models.CharField(max_length=20, choices=EXPENSE_TYPE_CHOICES)
+    amount = models.FloatField()
+    expense_date = models.DateField(default=today_date, null=True)
+    payment_mode = models.CharField(max_length=10, choices=PAYMENT_MODE_CHOICES)
+    spent_by = models.ForeignKey(
+        Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name='expenses'
+    )
+    reference_type = models.CharField(max_length=50, blank=True, null=True)
+    reference_id = models.PositiveIntegerField(blank=True, null=True)
+    note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.title} - {self.amount}"
 
 
 # ------------------ Core Entities ------------------
@@ -170,7 +282,6 @@ class Sale(models.Model):
     is_repair_job = models.BooleanField(default=False)
     is_accident = models.BooleanField(default=False)
     is_warranty_job = models.BooleanField(default=False)
-    post_service_feedback_date = models.DateField(blank=True, null=True)
     follow_up_date = models.DateField(blank=True, null=True)
     post_service_feedback_date = models.DateField(blank=True, null=True)
     job_done_on_vehicle = models.TextField(blank=True, null=True)
@@ -187,7 +298,10 @@ class Sale(models.Model):
         ('partial', 'Partially Paid'),
         ('paid', 'Paid')
     ]
-    is_paid = models.TextField(blank=True, null=True)  # <- add default
+    is_paid = models.CharField(
+        max_length=20, choices=PAID_STATUS_CHOICES,
+        default='not_paid', blank=True
+    )
 
     PAID_FROM_CHOICES = [
         ('cash', 'Cash'),
@@ -343,3 +457,4 @@ class FollowUpDashboard(models.Model):
 
     class Meta:
         ordering = ['follow_up_date']
+

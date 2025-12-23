@@ -1,10 +1,11 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 from django.db.models.signals import post_save, pre_save, pre_delete, post_delete
 from django.dispatch import receiver
 from django.db.models import F
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
-from .models import Category, Order, Purchase, Sale, SaleItem, PurchaseItem, FollowUpDashboard, OrderItem, Stock, Supplier
+from django.db.models import Sum
+from .models import Category, Expense, Order, Purchase, SalaryTracker, SalaryTransaction, Sale, SaleItem, PurchaseItem, FollowUpDashboard, OrderItem, Stock, Supplier
 
 FOLLOW_UP_INTERVAL_DAYS = 30
 POST_FEEDBACK_DAYS = 3
@@ -136,86 +137,68 @@ def update_order_totals_on_delete(sender, instance, **kwargs):
         instance.order.update_totals()
 
 
-def first_time_mass_upload(data_list, current_user=None):
-    with transaction.atomic():
-        for row in data_list:
+# ---------------- SalaryTransaction → Expense ----------------
+@receiver(post_save, sender=SalaryTransaction)
+@transaction.atomic
+def handle_salary_transaction_save(sender, instance, created, **kwargs):
+    # ensure expense_date is a date
+    expense_date = instance.payment_date if isinstance(instance.payment_date, timezone.datetime) else instance.payment_date
+    if isinstance(expense_date, timezone.datetime):
+        expense_date = expense_date.date()
 
-            # 1️⃣ Category
-            category, _ = Category.objects.get_or_create(
-                name=row['category']
-            )
+    if created and instance.transaction_type != 'adjustment':
+        Expense.objects.create(
+            title=f"{instance.transaction_type.title()} - {instance.staff.name}",
+            expense_type='operational',
+            amount=instance.amount,
+            expense_date=expense_date,
+            payment_mode=instance.payment_mode,
+            reference_type='salary_transaction',
+            reference_id=instance.id,
+            spent_by=None
+        )
 
-            # 2️⃣ Supplier
-            supplier, _ = Supplier.objects.get_or_create(
-                name=row['supplier']
-            )
+    tracker = instance.staff.salarytracker_set.filter(date=expense_date).first()
+    if tracker:
+        total_paid = SalaryTransaction.objects.filter(
+            staff=instance.staff,
+            salary_tracker=tracker
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        tracker.paid_amount = total_paid
+        tracker.status = 'paid' if tracker.paid_amount >= tracker.total_salary else 'partial' if tracker.paid_amount > 0 else 'pending'
+        tracker.save(update_fields=['paid_amount', 'status'])
 
-            # 3️⃣ Stock (NO stock quantity touched here)
-            stock, _ = Stock.objects.get_or_create(
-                item_no=row['item_no'],
-                defaults={
-                    'name': row['name'],
-                    'category': category,
-                    'model': row.get('model', 'N/A'),
-                    'purchase_price': row.get('purchase_price', 0),
-                    'sale_price': row.get('sale_price', 0),
-                }
-            )
+@receiver(pre_delete, sender=SalaryTransaction)
+@transaction.atomic
+def handle_salary_transaction_delete(sender, instance, **kwargs):
+    """
+    When a SalaryTransaction is deleted:
+    - Update SalaryTracker
+    - Delete related Expense
+    """
+    expense_date = instance.payment_date.date() if hasattr(instance.payment_date, 'date') else instance.payment_date
 
-            # Update prices only
-            stock.purchase_price = row.get('purchase_price', stock.purchase_price)
-            stock.sale_price = row.get('sale_price', stock.sale_price)
-            stock.save(update_fields=['purchase_price', 'sale_price'])
+    # Delete corresponding Expense
+    Expense.objects.filter(
+        reference_type='salary_transaction',
+        reference_id=instance.id
+    ).delete()
 
-            # 4️⃣ Purchase (signals add stock)
-            if row.get('purchase_qty', 0) > 0:
-                purchase = Purchase.objects.create(
-                    supplier=supplier,
-                    created_by=current_user
-                )
-                PurchaseItem.objects.create(
-                    purchase=purchase,
-                    item=stock,
-                    quantity=row['purchase_qty'],
-                    price=row['purchase_price'],
-                    sale_price=row.get('sale_price', stock.sale_price),
-                    vat=row.get('vat')
-                )
+    # Update SalaryTracker
+    tracker = instance.staff.salarytracker_set.filter(date=expense_date).first()
+    if tracker:
+        total_paid = SalaryTransaction.objects.filter(
+            staff=instance.staff,
+            salary_tracker=tracker
+        ).exclude(pk=instance.pk).aggregate(total=Sum('amount'))['total'] or 0
 
-            # 5️⃣ Sale (signals deduct stock)
-            if row.get('sale_qty', 0) > 0:
-                sale = Sale.objects.create(
-                    customer_name=row.get('customer_name'),
-                    contact_no=row.get('contact_no'),
-                    vehicle_model=row.get('vehicle_model'),
-                    handled_by=current_user,
-                    is_servicing=False
-                )
-                SaleItem.objects.create(
-                    sale=sale,
-                    item=stock,
-                    quantity=row['sale_qty'],
-                    price=row['sale_price']
-                )
+        tracker.paid_amount = total_paid
 
-                FollowUpDashboard.objects.get_or_create(
-                    sale=sale,
-                    customer_name=row.get('customer_name', ''),
-                    contact_no=row.get('contact_no', ''),
-                    vehicle=row.get('vehicle_model', '')
-                )
+        if tracker.paid_amount >= tracker.total_salary:
+            tracker.status = 'paid'
+        elif tracker.paid_amount > 0:
+            tracker.status = 'partial'
+        else:
+            tracker.status = 'pending'
 
-            # 6️⃣ Order (NO stock change here)
-            if row.get('order_qty', 0) > 0:
-                order = Order.objects.create(
-                    customer_name=row.get('customer_name', ''),
-                    contact_no=row.get('contact_no', ''),
-                    advance=row.get('advance', 0)
-                )
-                OrderItem.objects.create(
-                    order=order,
-                    item=stock,
-                    quantity=row['order_qty'],
-                    rate=row.get('order_rate', stock.sale_price)
-                )
-                order.update_totals()
+        tracker.save(update_fields=['paid_amount', 'status'])
