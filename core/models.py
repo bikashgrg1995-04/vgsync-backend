@@ -426,8 +426,8 @@ class FollowUpDashboard(models.Model):
         ("completed", "Completed"),
         ("terminated", "Terminated"),
     )
-    sale = models.OneToOneField(Sale, on_delete=models.CASCADE)
-    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    sale = models.OneToOneField(Sale, on_delete=models.CASCADE, null=True, blank=True)
+    assigned_to = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
 
     customer_name = models.CharField(max_length=100)
     contact_no = models.CharField(max_length=50, blank=True, null=True)

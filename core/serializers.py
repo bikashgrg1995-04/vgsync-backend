@@ -461,3 +461,32 @@ class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = '__all__'
+
+
+class FollowUpUploadSerializer(serializers.Serializer):
+    customer_name = serializers.CharField()
+    contact_no = serializers.CharField(required=False, allow_blank=True)
+    vehicle = serializers.CharField(required=False, allow_blank=True)
+    follow_up_date = serializers.DateField()
+    assigned_to = serializers.CharField()  # <-- take staff name or PK from Excel
+    remarks = serializers.CharField(required=False, allow_blank=True)
+    delivery_date = serializers.DateField(required=False, allow_null=True)
+    post_service_feedback_date = serializers.DateField(required=False, allow_null=True)
+
+    def create(self, validated_data):
+        # Resolve assigned_to to Staff object
+        staff_identifier = validated_data.pop('assigned_to')
+        try:
+            # You can choose either by PK or name
+            if staff_identifier.isdigit():  # assume PK if number
+                staff = Staff.objects.get(pk=int(staff_identifier))
+            else:
+                staff = Staff.objects.get(name=staff_identifier)
+        except Staff.DoesNotExist:
+            raise serializers.ValidationError({'assigned_to': f"Staff '{staff_identifier}' not found."})
+
+        followup = FollowUpDashboard.objects.create(
+            assigned_to=staff,
+            **validated_data
+        )
+        return followup

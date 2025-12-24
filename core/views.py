@@ -16,7 +16,7 @@ from .models import (
     Order, OrderItem, Staff, User
 )
 from .serializers import (
-    ExpenseSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SupplierSerializer, CategorySerializer, StockSerializer,
+    ExpenseSerializer, FollowUpUploadSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SupplierSerializer, CategorySerializer, StockSerializer,
     PurchaseSerializer, StockSaleSerializer, ServiceSaleSerializer,
         FollowUpDashboardSerializer,
     StaffSerializer, OrderSerializer, UserSerializer
@@ -168,6 +168,7 @@ class ServiceSaleViewSet(viewsets.ModelViewSet):
 # =====================================================
 # FOLLOW-UP DASHBOARD
 # =====================================================
+VALID_STATUSES = {"pending", "completed", "terminated"}
 class FollowUpDashboardViewSet(viewsets.ModelViewSet):
     queryset = FollowUpDashboard.objects.all()
     serializer_class = FollowUpDashboardSerializer
@@ -312,3 +313,73 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     queryset = Expense.objects.all()
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated]
+
+
+import pandas as pd
+from django.utils.dateparse import parse_date
+
+def parse_excel_date(value):
+    """Convert Excel/str/NaN to Python date or None"""
+    if pd.isna(value):
+        return None
+    if isinstance(value, str):
+        return parse_date(value)  # expects "YYYY-MM-DD"
+    return pd.to_datetime(value).date()
+
+
+@api_view(['POST'])
+def followup_excel_upload(request):
+    file = request.FILES.get('file')
+    if not file:
+        return Response({"error": "No file uploaded"}, status=400)
+
+    df = pd.read_excel(file)
+    created_followups = []
+    errors = []
+
+    for idx, row in df.iterrows():
+        row_number = idx + 2  # Excel row number (header + 1)
+
+        try:
+            # Resolve assigned_to
+            assigned_user = None
+            assigned_val = row.get('assigned_to')
+            if assigned_val:
+                try:
+                    # If numeric, treat as PK
+                    if str(assigned_val).isdigit():
+                        assigned_user = Staff.objects.get(pk=int(assigned_val))
+                    else:
+                        # Otherwise, treat as name
+                        assigned_user = Staff.objects.get(name=str(assigned_val))
+                except Staff.DoesNotExist:
+                    raise ValueError(f"Staff '{assigned_val}' not found")
+
+            # Parse dates safely
+            def parse_excel_date(value):
+                if pd.isna(value) or value in [None, ""]:
+                    return None
+                if isinstance(value, str):
+                    return timezone.datetime.strptime(value, "%Y-%m-%d").date()
+                return value.date() if hasattr(value, "date") else value
+
+            followup = FollowUpDashboard.objects.create(
+                customer_name=row['customer_name'],
+                contact_no=row.get('contact_no', ''),
+                vehicle=row.get('vehicle', ''),
+                follow_up_date=parse_excel_date(row['follow_up_date']),
+                assigned_to=assigned_user,
+                remarks=row.get('remarks', ''),
+                delivery_date=parse_excel_date(row.get('delivery_date')),
+                post_service_feedback_date=parse_excel_date(row.get('post_service_feedback_date'))
+            )
+
+            created_followups.append(followup.id)
+
+        except Exception as e:
+            errors.append({"row": row_number, "errors": str(e)})
+
+    return Response({
+        "created_followups": created_followups,
+        "errors": errors
+    })
