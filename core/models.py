@@ -217,6 +217,8 @@ class Purchase(models.Model):
     vat_percentage = models.FloatField(default=13)
     discount_percentage = models.FloatField(default=0)
 
+    is_migrated = models.BooleanField(default=False)  # ✅ ADD
+
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
@@ -235,13 +237,11 @@ class PurchaseItem(models.Model):
         return self.quantity * self.price
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        old_qty = 0
-
-        if not is_new:
-            old_qty = PurchaseItem.objects.get(pk=self.pk).quantity
-
         super().save(*args, **kwargs)
+
+        # 🔴 STOP HERE for migrated (Excel) data
+        if self.purchase.is_migrated:
+            return
 
         # Update item pricing + VAT
         self.item.purchase_price = self.price
@@ -286,6 +286,7 @@ class Sale(models.Model):
     post_service_feedback_date = models.DateField(blank=True, null=True)
     job_done_on_vehicle = models.TextField(blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
+    is_migrated = models.BooleanField(default=False)  # ✅ ADD
 
     # Financial fields
     total_amount = models.FloatField(default=0, blank=True, null=True)
@@ -300,7 +301,7 @@ class Sale(models.Model):
     ]
     is_paid = models.CharField(
         max_length=20, choices=PAID_STATUS_CHOICES,
-        default='not_paid', blank=True
+        default='not_paid', blank=True,
     )
 
     PAID_FROM_CHOICES = [
@@ -310,7 +311,7 @@ class Sale(models.Model):
     ]
     paid_from = models.CharField(max_length=20, choices=PAID_FROM_CHOICES, blank=True, null=True)
 
-    handled_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    handled_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
         return f"Sale #{self.id} - {'Service' if self.is_servicing else 'Stock'}"
