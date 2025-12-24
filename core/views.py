@@ -383,3 +383,76 @@ def followup_excel_upload(request):
         "created_followups": created_followups,
         "errors": errors
     })
+
+
+@api_view(['POST'])
+def stock_excel_upload(request):
+    file = request.FILES.get('file')
+
+    if not file:
+        return Response({"error": "No file uploaded"}, status=400)
+
+    try:
+        df = pd.read_excel(file)
+    except Exception as e:
+        return Response({"error": f"Invalid Excel file: {str(e)}"}, status=400)
+
+    required_columns = [
+        'item_no', 'name', 'category', 'model',
+        'purchase_price', 'sale_price', 'stock'
+    ]
+
+    for col in required_columns:
+        if col not in df.columns:
+            return Response({"error": f"Missing column: {col}"}, status=400)
+
+    created = []
+    updated = []
+    errors = []
+
+    for idx, row in df.iterrows():
+        row_number = idx + 2  # Excel row number
+
+        try:
+            with transaction.atomic():
+                # Category
+                category_name = str(row['category']).strip()
+                category, _ = Category.objects.get_or_create(name=category_name)
+
+                group_value = (
+                    str(row['group']).strip()
+                    if 'group' in row and pd.notna(row['group'])
+                    else category.name
+                )
+
+                stock_obj, is_created = Stock.objects.update_or_create(
+                    item_no=str(row['item_no']).strip(),
+                    defaults={
+                        'name': str(row['name']).strip(),
+                        'category': category,
+                        'model': str(row['model']).strip(),
+                        'group': group_value,
+                        'purchase_price': float(row['purchase_price']),
+                        'sale_price': float(row['sale_price']),
+                        'vat': float(row['vat']) if 'vat' in row and pd.notna(row['vat']) else 0,
+                        'stock': int(row['stock'])
+                    }
+                )
+
+                if is_created:
+                    created.append(stock_obj.item_no)
+                else:
+                    updated.append(stock_obj.item_no)
+
+        except Exception as e:
+            errors.append({
+                "row": row_number,
+                "item_no": row.get('item_no'),
+                "error": str(e)
+            })
+
+    return Response({
+        "created": created,
+        "updated": updated,
+        "errors": errors
+    })
