@@ -1,6 +1,10 @@
 from rest_framework import serializers
 from django.db import transaction
 from datetime import date, timedelta
+
+from core.services.utils import extract_item_no
+
+
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
     Supplier, Staff, Category, Order, OrderItem, User
@@ -490,3 +494,24 @@ class FollowUpUploadSerializer(serializers.Serializer):
             **validated_data
         )
         return followup
+
+
+class OrderExcelRowSerializer(serializers.Serializer):
+    order_ref = serializers.CharField()
+
+    customer_name = serializers.CharField()
+    contact_no = serializers.CharField(required=False, allow_blank=True)
+    vehicle_model = serializers.CharField(required=False, allow_blank=True)
+    order_date = serializers.DateTimeField()
+    advance = serializers.FloatField(default=0)
+
+    item_no = serializers.CharField()
+    quantity = serializers.IntegerField(min_value=1)
+    rate = serializers.FloatField(min_value=0)
+
+    def validate_item_no(self, value):
+        item_no = extract_item_no(value).strip()
+        try:
+            return Stock.objects.get(item_no__iexact=item_no)  # case-insensitive
+        except Stock.DoesNotExist:
+            raise serializers.ValidationError(f"Stock with item_no '{item_no}' does not exist")

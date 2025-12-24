@@ -1,22 +1,25 @@
+from collections import defaultdict
 from django.utils import timezone
 from django.db.models import Sum, F, FloatField
 from django.db import transaction
 
+import openpyxl
 from rest_framework import viewsets, filters, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from django_filters.rest_framework import DjangoFilterBackend
 
 from core.permissions import IsAdminOrReadOnlyForStaff
+from core.services.utils import extract_item_no
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock, Purchase, PurchaseItem,
     Sale, SaleItem, FollowUpDashboard,
     Order, OrderItem, Staff, User
 )
 from .serializers import (
-    ExpenseSerializer, FollowUpUploadSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SupplierSerializer, CategorySerializer, StockSerializer,
+    ExpenseSerializer, FollowUpUploadSerializer, OrderExcelRowSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SupplierSerializer, CategorySerializer, StockSerializer,
     PurchaseSerializer, StockSaleSerializer, ServiceSaleSerializer,
         FollowUpDashboardSerializer,
     StaffSerializer, OrderSerializer, UserSerializer
@@ -455,4 +458,101 @@ def stock_excel_upload(request):
         "created": created,
         "updated": updated,
         "errors": errors
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def order_excel_upload(request):
+    file = request.FILES.get('file')
+    if not file:
+        return Response({"detail": "Excel file is required"}, status=400)
+
+    wb = openpyxl.load_workbook(file)
+    sheet = wb.active
+
+    grouped_rows = defaultdict(list)
+    row_errors = []
+
+    # ---------------- READ + VALIDATE ----------------
+    for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+        data = {
+            "order_ref": row[0],
+            "customer_name": row[1],
+            "contact_no": row[2],
+            "vehicle_model": row[3],
+            "order_date": row[4],
+            "advance": row[5] or 0,
+            "item_no": row[6],
+            "quantity": row[7],
+            "rate": row[8],
+        }
+
+        serializer = OrderExcelRowSerializer(data=data)
+        if not serializer.is_valid():
+            row_errors.append({
+                "row": row_number,
+                "errors": serializer.errors
+            })
+            continue
+
+        grouped_rows[serializer.validated_data["order_ref"]].append(
+            serializer.validated_data
+        )
+
+    created_orders = []
+    order_errors = []
+
+    # ---------------- CREATE ORDERS ----------------
+    for order_ref, rows in grouped_rows.items():
+        try:
+            with transaction.atomic():
+                first = rows[0]
+
+                order = Order.objects.create(
+                    customer_name=first["customer_name"].strip(),
+                    contact_no=first["contact_no"].strip(),
+                    vehicle_model=first["vehicle_model"].strip(),
+                    order_date=first["order_date"],
+                    advance=float(first["advance"])
+                )
+
+                total_amount = 0
+
+                for r in rows:
+                    item_no = extract_item_no(r["item_no"]).strip().upper()
+                    try:
+                        stock = Stock.objects.get(item_no=item_no)
+                    except Stock.DoesNotExist:
+                        raise Exception(f"Stock with item_no '{item_no}' does not exist")
+
+                    qty = int(r["quantity"])
+                    rate = float(r["rate"])
+
+                    OrderItem.objects.create(
+                        order=order,
+                        item=stock,
+                        quantity=qty,
+                        rate=rate
+                    )
+
+                    total_amount += qty * rate
+
+                # Update totals
+                order.total_amount = total_amount
+                order.remaining_amount = total_amount - order.advance
+                order.save(update_fields=['total_amount', 'remaining_amount'])
+
+                created_orders.append(order.id)
+
+        except Exception as e:
+            order_errors.append({
+                "order_ref": order_ref,
+                "error": str(e)
+            })
+
+    return Response({
+        "created_orders": created_orders,
+        "row_errors": row_errors,
+        "order_errors": order_errors
     })

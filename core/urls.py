@@ -18,6 +18,7 @@ from .views import (
     dashboard_summary,
     followup_excel_upload,
     monthly_stock_dashboard,
+    order_excel_upload,
     stock_excel_upload,
     yearly_stock_dashboard,
 )
@@ -73,4 +74,7 @@ urlpatterns = [
     
     #stock_upload_file
     path('stock/excel-upload/', stock_excel_upload),
+
+    # order_upload_file
+    path("order-excel-upload/", order_excel_upload),
 ]
