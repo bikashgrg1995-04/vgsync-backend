@@ -88,10 +88,13 @@ def full_dashboard_service():
         result = []
         for obj in qs:
             date_val = getattr(obj, date_attr)
+            if isinstance(date_val, timezone.datetime):
+                date_val = date_val.date()  # convert to date
             amount = getattr(obj, 'total_amount', None) or getattr(obj, 'amount', 0)
             if not start_date or date_val >= start_date:
                 result.append({"date": str(date_val), "amount": amount})
         return result
+
 
     def calculate_totals(income_list, expense_list):
         total_income = sum([i['amount'] for i in income_list])

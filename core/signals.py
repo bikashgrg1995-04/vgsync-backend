@@ -12,7 +12,6 @@ POST_FEEDBACK_DAYS = 3
 
 # ---------------- PURCHASE ITEM → STOCK ----------------
 @receiver(pre_save, sender=PurchaseItem)
-@receiver(pre_save, sender=PurchaseItem)
 def store_old_purchase_qty(sender, instance, **kwargs):
     if instance.pk:
         instance._old_quantity = (
@@ -69,6 +68,11 @@ def store_old_sale_qty(sender, instance, **kwargs):
 @receiver(post_save, sender=SaleItem)
 @transaction.atomic
 def adjust_stock_on_sale_save(sender, instance, created, **kwargs):
+        
+        # 🚫 skip migrated sales
+        if instance.sale.is_migrated:
+            return
+
         diff = instance.quantity - getattr(instance, '_old_quantity', 0)
 
         if diff == 0:
@@ -81,6 +85,10 @@ def adjust_stock_on_sale_save(sender, instance, created, **kwargs):
 @receiver(pre_delete, sender=SaleItem)
 @transaction.atomic
 def restore_stock_on_sale_delete(sender, instance, **kwargs):
+    # 🚫 skip migrated sales
+    if instance.sale.is_migrated:
+        return
+
     Stock.objects.select_for_update().filter(
         pk=instance.item_id
     ).update(stock=F('stock') + instance.quantity)
@@ -121,7 +129,7 @@ def manage_followup_dashboard(sender, instance, **kwargs):
     # update fields for non-terminated follow-ups
     followup.customer_name = instance.customer_name or "Unknown"
     followup.contact_no = instance.contact_no
-    followup.vehicle = instance.bike_registration_no
+    followup.vehicle = instance.vehicle_model or instance.bike_registration_no
     followup.delivery_date = instance.delivery_date
     followup.post_service_feedback_date = post_feedback_date
     followup.follow_up_date = follow_up_date

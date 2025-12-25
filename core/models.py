@@ -259,105 +259,131 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
-
 class Sale(models.Model):
     sale_date = models.DateTimeField(default=timezone.now)
 
-    # Basic fields (for both stock and service sales)
+    # ---------------- BASIC (COMMON) ----------------
     customer_name = models.CharField(max_length=100, blank=True, null=True)
     contact_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_model = models.CharField(max_length=50, blank=True, null=True)
-    is_servicing = models.BooleanField(default=False)
-    km_driven = models.IntegerField(default=0, blank=True, null=True)
 
-    # Service-specific fields
+    is_servicing = models.BooleanField(default=False)
+
+    # ---------------- SERVICE ONLY ----------------
+    km_driven = models.IntegerField(blank=True, null=True)
     job_card_no = models.CharField(max_length=50, blank=True, null=True)
     bike_registration_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_color = models.CharField(max_length=30, blank=True, null=True)
+
     received_date = models.DateField(blank=True, null=True)
     delivery_date = models.DateField(blank=True, null=True)
+
     bill_no = models.CharField(max_length=50, blank=True, null=True)
     technician_name = models.CharField(max_length=100, blank=True, null=True)
+
     is_free_servicing = models.BooleanField(default=False)
     is_repair_job = models.BooleanField(default=False)
     is_accident = models.BooleanField(default=False)
     is_warranty_job = models.BooleanField(default=False)
+
     follow_up_date = models.DateField(blank=True, null=True)
     post_service_feedback_date = models.DateField(blank=True, null=True)
+
     job_done_on_vehicle = models.TextField(blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
-    is_migrated = models.BooleanField(default=False)  # ✅ ADD
 
-    # Financial fields
-    total_amount = models.FloatField(default=0, blank=True, null=True)
-    labour_charge = models.FloatField(default=0, blank=True, null=True)
-    paid_amount = models.FloatField(default=0, blank=True, null=True)
-    remaining_amount = models.FloatField(default=0, blank=True, null=True)
+    is_migrated = models.BooleanField(default=False)
 
-    PAID_STATUS_CHOICES = [
+    # ---------------- FINANCIAL ----------------
+    total_amount = models.FloatField(default=0)
+    labour_charge = models.FloatField(default=0)
+    paid_amount = models.FloatField(default=0)
+    remaining_amount = models.FloatField(default=0)
+
+    PAID_STATUS_CHOICES = (
         ('not_paid', 'Not Paid'),
-        ('partial', 'Partially Paid'),
-        ('paid', 'Paid')
-    ]
+        ('partial', 'Partial'),
+        ('paid', 'Paid'),
+    )
     is_paid = models.CharField(
-        max_length=20, choices=PAID_STATUS_CHOICES,
-        default='not_paid', blank=True,
+        max_length=20,
+        choices=PAID_STATUS_CHOICES,
+        default='not_paid'
     )
 
-    PAID_FROM_CHOICES = [
+    PAID_FROM_CHOICES = (
         ('cash', 'Cash'),
-        ('esewa', 'eSewa'),
-        ('both', 'Both')
-    ]
-    paid_from = models.CharField(max_length=20, choices=PAID_FROM_CHOICES, blank=True, null=True)
+        ('online', 'Online'),
+        ('both', 'Both'),
+    )
+    paid_from = models.CharField(
+        max_length=20,
+        choices=PAID_FROM_CHOICES,
+        blank=True,
+        null=True
+    )
 
-    handled_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    handled_by = models.ForeignKey(
+        'Staff',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True
+    )
+
+    # ------------------------------------------------
 
     def __str__(self):
-        return f"Sale #{self.id} - {'Service' if self.is_servicing else 'Stock'}"
-    
-    def update_payment_status(self):
-        """Update remaining_amount and is_paid based on paid_amount and total_amount"""
-        self.remaining_amount = max(self.total_amount - self.paid_amount, 0)
-        if self.paid_amount >= self.total_amount:
-            self.is_paid = 'paid'
-        elif self.paid_amount > 0:
-            self.is_paid = 'partial'
-        else:
-            self.is_paid = 'not_paid'
+        return f"Sale #{self.id} ({'Service' if self.is_servicing else 'Stock'})"
 
+    # ---------------- PAYMENT LOGIC ----------------
+    def calculate_totals(self):
+        items_total = sum(
+            (item.quantity or 0) * (item.price or 0)
+            for item in self.items.all()
+        )
 
-    def calculate_totals(self, new_paid_amount=None):
-        """
-        Calculate totals from related SaleItems
-        - total_amount = sum(items) + labour_charge
-        - remaining_amount = total_amount - paid_amount
-        - is_paid status
-        """
-        items_total = sum([item.quantity * item.price for item in self.items.all()])
         total_amount = items_total + (self.labour_charge or 0)
-        paid_amount = new_paid_amount if new_paid_amount is not None else self.paid_amount or 0
+        paid_amount = self.paid_amount or 0
         remaining_amount = max(total_amount - paid_amount, 0)
 
-        
-        is_paid = self.update_payment_status()
-        
+        if paid_amount >= total_amount and total_amount > 0:
+            is_paid = 'paid'
+        elif paid_amount > 0:
+            is_paid = 'partial'
+        else:
+            is_paid = 'not_paid'
 
         return total_amount, remaining_amount, is_paid
 
+    # ---------------- SAVE (FINAL & SAFE) ----------------
     def save(self, *args, **kwargs):
-        # First save to get PK if new
-        super().save(*args, **kwargs)
+        # 🔒 STOCK SALE → wipe service-only fields
+        if not self.is_servicing:
+            self.km_driven = None
+            self.job_card_no = None
+            self.bike_registration_no = None
+            self.vehicle_color = None
+            self.received_date = None
+            self.delivery_date = None
+            self.follow_up_date = None
+            self.post_service_feedback_date = None
+            self.is_free_servicing = False
+            self.is_repair_job = False
+            self.is_accident = False
+            self.is_warranty_job = False
 
-        # Auto-calc service dates
+        super().save(*args, **kwargs)  # first save (PK required)
+
+        # 📅 SERVICE AUTO-DATES
         if self.is_servicing and self.delivery_date:
             if not self.post_service_feedback_date:
                 self.post_service_feedback_date = self.delivery_date + timedelta(days=3)
             if not self.follow_up_date:
                 self.follow_up_date = self.delivery_date + timedelta(days=30)
 
-        # Recalculate totals using actual items
+        # 💰 CALCULATE TOTALS
         total_amount, remaining_amount, is_paid = self.calculate_totals()
+
         self.total_amount = total_amount
         self.remaining_amount = remaining_amount
         self.is_paid = is_paid
@@ -367,9 +393,8 @@ class Sale(models.Model):
             'remaining_amount',
             'is_paid',
             'post_service_feedback_date',
-            'follow_up_date'
+            'follow_up_date',
         ])
-
 
 class SaleItem(models.Model):
     sale = models.ForeignKey(Sale, related_name='items', on_delete=models.CASCADE)

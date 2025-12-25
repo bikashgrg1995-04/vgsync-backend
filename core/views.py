@@ -14,6 +14,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from core.permissions import IsAdminOrReadOnlyForStaff
 from core.services.dashboard_overview import full_dashboard_service
 from core.services.purchase_upload import upload_purchase_excel
+from core.services.sale_upload import upload_sales_excel
 from core.services.utils import extract_item_no
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock, Purchase, PurchaseItem,
@@ -498,3 +499,12 @@ def upload_purchase_excel_api(request):
     result = upload_purchase_excel(file, request.user)
     return Response(result)
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def upload_sales_excel_api(request):
+    file = request.FILES.get('file')
+    if not file:
+        return Response({"error": "Excel file required"}, status=400)
+
+    result = upload_sales_excel(file)
+    return Response(result)

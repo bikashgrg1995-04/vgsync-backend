@@ -20,6 +20,7 @@ from .views import (
     order_excel_upload,
     stock_excel_upload,
     upload_purchase_excel_api,
+    upload_sales_excel_api,
 )
 
 router = DefaultRouter()
@@ -77,5 +78,5 @@ urlpatterns = [
 
 
     path('upload/purchase-excel/', upload_purchase_excel_api),
-    # path('upload/sale-excel/', upload_sales_excel),
+    path('upload/sales-excel/', upload_sales_excel_api),
 ]
