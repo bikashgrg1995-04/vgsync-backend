@@ -27,6 +27,10 @@ def store_old_purchase_qty(sender, instance, **kwargs):
 @receiver(post_save, sender=PurchaseItem)
 @transaction.atomic
 def adjust_stock_on_purchase_save(sender, instance, **kwargs):
+      # 🚫 skip migrated purchases
+    if instance.purchase.is_migrated:
+        return
+    
     diff = instance.quantity - getattr(instance, '_old_quantity', 0)
 
     if diff == 0:
@@ -40,6 +44,10 @@ def adjust_stock_on_purchase_save(sender, instance, **kwargs):
 @receiver(pre_delete, sender=PurchaseItem)
 @transaction.atomic
 def reduce_stock_on_purchase_delete(sender, instance, **kwargs):
+      # 🚫 skip migrated purchases
+    if instance.purchase.is_migrated:
+        return
+    
     Stock.objects.select_for_update().filter(
         pk=instance.item_id
     ).update(stock=F('stock') - instance.quantity)
@@ -142,14 +150,14 @@ def update_order_totals_on_delete(sender, instance, **kwargs):
 @transaction.atomic
 def handle_salary_transaction_save(sender, instance, created, **kwargs):
     # ensure expense_date is a date
-    expense_date = instance.payment_date if isinstance(instance.payment_date, timezone.datetime) else instance.payment_date
-    if isinstance(expense_date, timezone.datetime):
+    expense_date = instance.payment_date
+    if hasattr(expense_date, "date"):
         expense_date = expense_date.date()
 
     if created and instance.transaction_type != 'adjustment':
         Expense.objects.create(
             title=f"{instance.transaction_type.title()} - {instance.staff.name}",
-            expense_type='operational',
+            expense_type='salary',
             amount=instance.amount,
             expense_date=expense_date,
             payment_mode=instance.payment_mode,
@@ -157,6 +165,7 @@ def handle_salary_transaction_save(sender, instance, created, **kwargs):
             reference_id=instance.id,
             spent_by=None
         )
+
 
     tracker = instance.staff.salarytracker_set.filter(date=expense_date).first()
     if tracker:

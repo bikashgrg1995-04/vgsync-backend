@@ -15,13 +15,11 @@ from .views import (
     FollowUpDashboardViewSet,
     OrderViewSet,
     StaffViewSet,
-    dashboard_summary,
     followup_excel_upload,
-    monthly_stock_dashboard,
+    full_dashboard,
     order_excel_upload,
     stock_excel_upload,
     upload_purchase_excel_api,
-    yearly_stock_dashboard,
 )
 
 router = DefaultRouter()
@@ -66,9 +64,7 @@ urlpatterns = [
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # Dashboard overview
-    path('dashboard/', dashboard_summary, name='dashboard-summary'),
-    path('dashboard/stock/monthly/', monthly_stock_dashboard, name='dashboard-stock-monthly'),
-    path('dashboard/stock/yearly/', yearly_stock_dashboard, name='dashboard-stock-yearly'),
+    path('dashboard/', full_dashboard, name='dashboard-summary'),
 
     #followup_upload_file
     path('followup/excel-upload/', followup_excel_upload, name='followup_excel_upload'),

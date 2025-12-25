@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
 from core.permissions import IsAdminOrReadOnlyForStaff
+from core.services.dashboard_overview import full_dashboard_service
 from core.services.purchase_upload import upload_purchase_excel
 from core.services.utils import extract_item_no
 from .models import (
@@ -208,85 +209,13 @@ class StaffViewSet(viewsets.ModelViewSet):
 # =====================================================
 # DASHBOARD SUMMARY
 # =====================================================
-@api_view(['GET'])
-def dashboard_summary(request):
-    today = timezone.now().date()
-    start_of_month = today.replace(day=1)
-
-    total_sales_count = Sale.objects.count()
-    total_purchases_count = Purchase.objects.count()
-    total_categories = Category.objects.count()
-    total_suppliers = Supplier.objects.count()
-    total_items = Stock.objects.count()
-
-    total_sales_amount = Sale.objects.aggregate(total=Sum('total_amount'))['total'] or 0
-    today_sales_amount = Sale.objects.filter(sale_date__date=today).aggregate(total=Sum('total_amount'))['total'] or 0
-    monthly_sales_amount = Sale.objects.filter(sale_date__date__gte=start_of_month).aggregate(total=Sum('total_amount'))['total'] or 0
-
-    total_purchases_amount = PurchaseItem.objects.aggregate(
-        total=Sum(F('quantity') * F('price'), output_field=FloatField())
-    )['total'] or 0
-
-    today_purchases_amount = PurchaseItem.objects.filter(purchase__date__date=today).aggregate(
-        total=Sum(F('quantity') * F('price'), output_field=FloatField())
-    )['total'] or 0
-
-    monthly_purchases_amount = PurchaseItem.objects.filter(purchase__date__date__gte=start_of_month).aggregate(
-        total=Sum(F('quantity') * F('price'), output_field=FloatField())
-    )['total'] or 0
-
-    stock_threshold = 5
-    low_stock_items = Stock.objects.filter(stock__lt=stock_threshold).values('id', 'name', 'stock', 'category__name')
-
-    upcoming_followups = FollowUpDashboard.objects.filter(status="pending").order_by("follow_up_date").values(
-        "id", "customer_name", "vehicle", "follow_up_date", "remarks", "created_at", 'updated_at'
-    )
-
-    return Response({
-        "summary": {
-            "sales": {
-                "count": total_sales_count,
-                "amount": total_sales_amount,
-                "today_amount": today_sales_amount,
-                "monthly_amount": monthly_sales_amount,
-            },
-            "purchases": {
-                "count": total_purchases_count,
-                "amount": total_purchases_amount,
-                "today_amount": today_purchases_amount,
-                "monthly_amount": monthly_purchases_amount,
-            },
-            "categories": total_categories,
-            "suppliers": total_suppliers,
-            "items": total_items,
-        },
-        "low_stock_items": list(low_stock_items),
-        "stock_threshold": stock_threshold,
-        "upcoming_followups": list(upcoming_followups),
-    })
-
 
 @api_view(["GET"])
-def monthly_stock_dashboard(request):
-    year = request.GET.get("year")
-    month = request.GET.get("month")
-
-    if not month:
-        return Response(
-            {"detail": "month is required"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    data = get_stock_dashboard(year=year, month=month)
+@permission_classes([IsAuthenticated])
+def full_dashboard(request):
+    data = full_dashboard_service()  # no request passed
     return Response(data)
 
-
-@api_view(["GET"])
-def yearly_stock_dashboard(request):
-    year = request.GET.get("year")
-
-    data = get_stock_dashboard(year=year)
-    return Response(data)
 
 
 # =====================================================

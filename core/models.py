@@ -136,6 +136,7 @@ def today_date():
 
 class Expense(models.Model):
     EXPENSE_TYPE_CHOICES = [
+        ('salary', "Salary"),
         ('operational','Operational'),
         ('other','Other')
     ]
