@@ -231,7 +231,7 @@ class PurchaseItem(models.Model):
 
     quantity = models.IntegerField()
     price = models.FloatField()
-    vat = models.FloatField(null=True, blank=True)
+    vat = models.FloatField(default=0,null=True, blank=True)
     sale_price = models.FloatField(default=0)
 
     def total_price(self):
@@ -247,8 +247,7 @@ class PurchaseItem(models.Model):
         # Update item pricing + VAT
         self.item.purchase_price = self.price
         self.item.sale_price = self.sale_price
-        if self.vat is not None:
-            self.item.vat = self.vat
+        self.item.vat = self.vat if self.vat is not None else 0  # <-- force default
         self.item.save(update_fields=['purchase_price', 'sale_price', 'vat'])
 
     def delete(self, *args, **kwargs):

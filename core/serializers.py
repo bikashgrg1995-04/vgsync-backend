@@ -124,7 +124,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
             stock = item['item']
             stock.purchase_price = item['price']
             stock.sale_price = item.get('sale_price', stock.sale_price)
-            stock.vat = item.get('vat', stock.vat)
+            stock.vat = item.get('vat', stock.vat) if item.get('vat') is not None else 0
             stock.save(update_fields=['purchase_price', 'sale_price', 'vat'])
 
         purchase.total_amount = total
@@ -156,7 +156,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
                 PurchaseItem.objects.create(purchase=instance, **item)
             stock.purchase_price = item['price']
             stock.sale_price = item.get('sale_price', stock.sale_price)
-            stock.vat = item.get('vat', stock.vat)
+            stock.vat = item.get('vat', stock.vat) if item.get('vat') is not None else 0
             stock.save(update_fields=['purchase_price', 'sale_price', 'vat'])
 
         for removed in old_items.values():
@@ -174,72 +174,6 @@ class PurchaseSerializer(serializers.ModelSerializer):
         instance.net_amount = net
         instance.save()
         return instance
-
-# class SaleReadSerializer(serializers.ModelSerializer):
-#     items = SaleItemSerializer(many=True, read_only=True)
-
-#     class Meta:
-#         model = Sale
-#         fields = [
-#             # ---- common ----
-#             'id',
-#             'sale_date',
-#             'customer_name',
-#             'contact_no',
-#             'vehicle_model',
-#             'is_servicing',
-#             'bill_no',
-#             'technician_name',
-#             'remarks',
-#             'paid_amount',
-#             'remaining_amount',
-#             'total_amount',
-#             'is_paid',
-#             'paid_from',
-#             'handled_by',
-#             'items',
-#             'labour_charge',
-#             'received_date',
-#             'delivery_date',
-
-#             # ---- service fields ----
-#             'follow_up_date',
-#             'post_service_feedback_date',
-#             'job_card_no',
-#             'bike_registration_no',
-#             'vehicle_color',
-#             'km_driven',
-#             'is_free_servicing',
-#             'is_repair_job',
-#             'is_accident',
-#             'is_warranty_job',
-#             'job_done_on_vehicle',
-#         ]
-
-#     def to_representation(self, instance):
-#         data = super().to_representation(instance)
-
-#         # ❌ hide service fields for stock sale
-#         if not instance.is_servicing:
-#             service_fields = [
-#                 'follow_up_date',
-#                 'post_service_feedback_date',
-#                 'job_card_no',
-#                 'bike_registration_no',
-#                 'vehicle_color',
-#                 'km_driven',
-#                 'is_free_servicing',
-#                 'is_repair_job',
-#                 'is_accident',
-#                 'is_warranty_job',
-#                 'job_done_on_vehicle',
-#                 'received_date',
-#                 'delivery_date',
-#             ]
-#             for field in service_fields:
-#                 data.pop(field, None)
-
-#         return data
 
 # ---------------- STAFF ----------------
 class StaffSerializer(serializers.ModelSerializer):
@@ -288,9 +222,6 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 
-
-
-# ------------------ Stock Sale Serializer ------------------
 # ------------------ Stock Sale Serializer ------------------
 class StockSaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True)
