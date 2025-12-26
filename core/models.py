@@ -7,6 +7,10 @@ from datetime import timedelta
 def upload_to_item(instance, filename):
     return f'items/{instance.name}/{filename}'
 
+
+def today_date():
+    return timezone.now().date()
+
 # ------------------ User ------------------
 class User(AbstractUser):
     ROLE_CHOICES = (
@@ -36,13 +40,13 @@ class Staff(models.Model):
     )
 
     SALARY_MODE_CHOICES = (
-        ('direct', 'Direct Payment'),   # technician, accountant
-        ('salary', 'Salary Based'),     # helper, admin, sales
+        ('daily', 'Daily Based'),   # technician, accountant
+        ('monthly', 'Monthly Based'),     # helper, admin, sales
     )
 
     name = models.CharField(max_length=100)
     designation = models.CharField(max_length=30, choices=DESIGNATION_CHOICES)
-    salary_mode = models.CharField(max_length=10, choices=SALARY_MODE_CHOICES, default="direct")
+    salary_mode = models.CharField(max_length=10, choices=SALARY_MODE_CHOICES, default="monthly")
     phone = models.CharField(max_length=50, blank=True, null=True)
     address = models.TextField(blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
@@ -54,10 +58,14 @@ class Staff(models.Model):
 
 
 # ------------------ Salary Tracker ------------------
+
+def today_date():
+    return timezone.now().date()
+
 class SalaryTracker(models.Model):
     staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
-    date = models.DateField(auto_now_add=True)
-    total_salary = models.FloatField()
+    date = models.DateField(default=today_date)
+    total_salary = models.FloatField(default=0, blank=True)  # monthly staff only
     paid_amount = models.FloatField(default=0)
 
     STATUS_CHOICES = [
@@ -66,30 +74,27 @@ class SalaryTracker(models.Model):
         ('paid', 'Paid'),
     ]
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
-
-    PAYMENT_MODE_CHOICES = [
-        ('cash','Cash'),
-        ('online','Online')
-    ]
-    payment_mode = models.CharField(max_length=10, choices=PAYMENT_MODE_CHOICES, blank=True, null=True)
+    payment_mode = models.CharField(max_length=10, choices=[('cash','Cash'),('online','Online')], blank=True, null=True)
     note = models.TextField(blank=True, null=True)
 
     @property
     def remaining_amount(self):
-        return self.total_salary - self.paid_amount
+        if self.staff and self.staff.salary_mode == 'monthly':
+            return self.total_salary - self.paid_amount
+        return None  # daily staff won't have remaining_amount
 
     def save(self, *args, **kwargs):
-        if self.paid_amount >= self.total_salary:
-            self.status = 'paid'
-        elif self.paid_amount > 0:
-            self.status = 'partial'
-        else:
-            self.status = 'pending'
+        if self.staff:
+            if self.staff.salary_mode == 'monthly':
+                if self.paid_amount >= self.total_salary:
+                    self.status = 'paid'
+                elif self.paid_amount > 0:
+                    self.status = 'partial'
+                else:
+                    self.status = 'pending'
+            else:  # daily staff
+                self.status = 'paid' if self.paid_amount > 0 else 'pending'
         super().save(*args, **kwargs)
-
-    def __str__(self):
-        staff_name = self.staff.name if self.staff else "No Staff"
-        return f"{staff_name} - {self.date} - {self.status}"
 
 
 # ------------------ Salary Transaction ------------------
@@ -98,7 +103,8 @@ class SalaryTransaction(models.Model):
     TRANSACTION_TYPE_CHOICES = [
        ('payment','Purchase payment'),
        ('advance', 'Advance'),
-       ('salary','Salary'),
+       ('daily_salary','Daily Salary'),
+       ('monthly_salary', 'Monthly Salary'),
        ('operational', 'operational'),
        ('saving', 'Saving'),
        ('others', 'Others')
@@ -117,22 +123,21 @@ class SalaryTransaction(models.Model):
     )
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE_CHOICES)
     amount = models.FloatField()
-    payment_date = models.DateField(default=timezone.now)
+    payment_date = models.DateField(default=today_date)
     payment_mode = models.CharField(
         max_length=10,
         choices=[('cash','Cash'),('online','Online')],
         blank=True, null=True
     )
     note = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateField(default=today_date)
 
     def __str__(self):
         return f"{self.staff.name} - {self.transaction_type} - {self.amount}"
 
 
 # ------------------ Expense ------------------
-def today_date():
-    return timezone.now().date()
+
 
 class Expense(models.Model):
     EXPENSE_TYPE_CHOICES = [

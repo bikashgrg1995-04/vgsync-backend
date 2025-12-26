@@ -152,70 +152,116 @@ def update_order_totals_on_delete(sender, instance, **kwargs):
     if hasattr(instance.order, 'update_totals'):
         instance.order.update_totals()
 
-
-# ---------------- SalaryTransaction → Expense ----------------
+# ---------------- SalaryTransaction → SalaryTracker & Expense ----------------
+# ---------------- SalaryTransaction → SalaryTracker & Expense ----------------
 @receiver(post_save, sender=SalaryTransaction)
 @transaction.atomic
 def handle_salary_transaction_save(sender, instance, created, **kwargs):
-    # ensure expense_date is a date
-    expense_date = instance.payment_date
-    if hasattr(expense_date, "date"):
-        expense_date = expense_date.date()
-
+    """
+    When a SalaryTransaction is created or updated:
+    - Create Expense if not adjustment
+    - Update the linked SalaryTracker
+    """
+    # 1️⃣ Create Expense
     if created and instance.transaction_type != 'adjustment':
         Expense.objects.create(
             title=f"{instance.transaction_type.title()} - {instance.staff.name}",
             expense_type='salary',
             amount=instance.amount,
-            expense_date=expense_date,
+            expense_date=instance.payment_date,
             payment_mode=instance.payment_mode,
             reference_type='salary_transaction',
             reference_id=instance.id,
             spent_by=None
         )
 
+    # 2️⃣ Determine tracker
+    tracker = instance.salary_tracker
+    if not tracker:
+        # Check existing tracker for same staff + date
+        tracker = SalaryTracker.objects.filter(
+            staff=instance.staff
+        ).first()
 
-    tracker = instance.staff.salarytracker_set.filter(date=expense_date).first()
-    if tracker:
-        total_paid = SalaryTransaction.objects.filter(
-            staff=instance.staff,
-            salary_tracker=tracker
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        tracker.paid_amount = total_paid
-        tracker.status = 'paid' if tracker.paid_amount >= tracker.total_salary else 'partial' if tracker.paid_amount > 0 else 'pending'
-        tracker.save(update_fields=['paid_amount', 'status'])
+        if not tracker:
+            # Create new if none exists
+            tracker = SalaryTracker.objects.create(
+                staff=instance.staff,
+                date=instance.payment_date,
+                total_salary=0 if instance.staff.salary_mode == 'daily' else 0,
+                paid_amount=0,
+                note=''
+            )
+
+        # Link transaction to tracker
+        instance.salary_tracker = tracker
+        instance.save(update_fields=['salary_tracker'])
+
+    # 3️⃣ Update total paid
+    total_paid = SalaryTransaction.objects.filter(
+        salary_tracker=tracker
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    tracker.paid_amount = total_paid
+
+    # 4️⃣ Combine notes
+    notes = SalaryTransaction.objects.filter(
+        salary_tracker=tracker
+    ).values_list('note', flat=True)
+    tracker.note = "\n".join(filter(None, notes))
+
+    # 5️⃣ Update status
+    if instance.staff.salary_mode == 'monthly':
+        if tracker.total_salary == 0 or tracker.paid_amount >= tracker.total_salary:
+            tracker.status = 'paid'
+        elif tracker.paid_amount > 0:
+            tracker.status = 'partial'
+        else:
+            tracker.status = 'pending'
+    else:
+        # daily staff
+        tracker.status = 'paid' if tracker.paid_amount > 0 else 'pending'
+
+    tracker.save(update_fields=['paid_amount', 'note', 'status'])
 
 @receiver(pre_delete, sender=SalaryTransaction)
 @transaction.atomic
 def handle_salary_transaction_delete(sender, instance, **kwargs):
     """
     When a SalaryTransaction is deleted:
-    - Update SalaryTracker
     - Delete related Expense
+    - Update linked SalaryTracker paid_amount, note, and status
     """
-    expense_date = instance.payment_date.date() if hasattr(instance.payment_date, 'date') else instance.payment_date
-
-    # Delete corresponding Expense
+    # 1️⃣ Delete corresponding Expense
     Expense.objects.filter(
         reference_type='salary_transaction',
         reference_id=instance.id
     ).delete()
 
-    # Update SalaryTracker
-    tracker = instance.staff.salarytracker_set.filter(date=expense_date).first()
+    # 2️⃣ Update tracker if exists
+    tracker = instance.salary_tracker
     if tracker:
+        # Recalculate total paid excluding this transaction
         total_paid = SalaryTransaction.objects.filter(
-            staff=instance.staff,
             salary_tracker=tracker
         ).exclude(pk=instance.pk).aggregate(total=Sum('amount'))['total'] or 0
-
         tracker.paid_amount = total_paid
 
-        if tracker.paid_amount >= tracker.total_salary:
-            tracker.status = 'paid'
-        elif tracker.paid_amount > 0:
-            tracker.status = 'partial'
-        else:
-            tracker.status = 'pending'
+        # Recombine notes
+        notes = SalaryTransaction.objects.filter(
+            salary_tracker=tracker
+        ).exclude(pk=instance.pk).values_list('note', flat=True)
+        combined_note = "\n".join(filter(None, notes))
+        tracker.note = combined_note
 
-        tracker.save(update_fields=['paid_amount', 'status'])
+        # Update status
+        if tracker.staff.salary_mode == 'monthly':
+            if tracker.total_salary == 0 or tracker.paid_amount >= tracker.total_salary:
+                tracker.status = 'paid'
+            elif tracker.paid_amount > 0:
+                tracker.status = 'partial'
+            else:
+                tracker.status = 'pending'
+        else:
+            tracker.status = 'paid' if tracker.paid_amount > 0 else 'pending'
+
+        tracker.save(update_fields=['paid_amount', 'note', 'status'])

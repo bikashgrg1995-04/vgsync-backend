@@ -15,7 +15,6 @@ from .views import (
     FollowUpDashboardViewSet,
     OrderViewSet,
     StaffViewSet,
-    followup_excel_upload,
     full_dashboard,
     order_excel_upload,
     stock_excel_upload,
@@ -66,9 +65,6 @@ urlpatterns = [
 
     # Dashboard overview
     path('dashboard/', full_dashboard, name='dashboard-summary'),
-
-    #followup_upload_file
-    path('followup/excel-upload/', followup_excel_upload, name='followup_excel_upload'),
     
     #stock_upload_file
     path('stock/excel-upload/', stock_excel_upload),
