@@ -1,64 +1,102 @@
 import pandas as pd
 from django.db import transaction
-from core.models import Purchase, PurchaseItem, Supplier, Stock
+from core.models import Purchase, PurchaseItem, Staff, Supplier, Stock
 
 
 @transaction.atomic
 def upload_purchase_excel(file, user):
-    # Read Excel file
+    """
+    Uploads purchases from Excel file.
+
+    Expected columns:
+    - purchase_ref
+    - supplier
+    - date
+    - item_no
+    - quantity
+    - price
+    Optional:
+    - vat
+    - sale_price
+    """
     df = pd.read_excel(file)
 
-    # Required columns
-    required = ['purchase_ref', 'supplier', 'date', 'item_no', 'quantity', 'price']
-    for col in required:
+    # Required columns check
+    required_cols = ['purchase_ref', 'supplier', 'date', 'item_no', 'quantity', 'price']
+    for col in required_cols:
         if col not in df.columns:
-            raise ValueError(f"Missing column: {col}")
+            raise ValueError(f"Missing required column: {col}")
 
     # Optional columns
-    optional = ['vat', 'sale_price']
+    optional_cols = ['vat', 'sale_price']
 
-    # Group by purchase reference
     grouped = df.groupby("purchase_ref")
-
     created = []
     errors = []
 
     for ref, rows in grouped:
         try:
-            # Get supplier
+            # Supplier lookup
             supplier_name = rows.iloc[0]['supplier']
             try:
                 supplier = Supplier.objects.get(name=supplier_name)
             except Supplier.DoesNotExist:
                 raise ValueError(f"Supplier '{supplier_name}' does not exist.")
+            
+            # Map user → staff
+            staff = getattr(user, 'staff', None)
+            if not staff:
+                # fallback: get or create a dummy staff
+                staff, _ = Staff.objects.get_or_create(
+                    name=f"Imported by {user.username}",
+                    email=user.email
+                )
+
 
             # Create Purchase
             purchase = Purchase.objects.create(
                 supplier=supplier,
                 date=rows.iloc[0]['date'],
-                created_by=user,
+                created_by=staff,
                 is_migrated=True  # mark as imported
             )
 
-            # Create PurchaseItems
-            for _, row in rows.iterrows():
+            purchase_items = []
+            total_net = 0
+            total_vat = 0
+
+            for idx, row in rows.iterrows():
                 try:
                     item = Stock.objects.get(item_no=row['item_no'])
                 except Stock.DoesNotExist:
-                    raise ValueError(f"Item with item_no '{row['item_no']}' does not exist.")
+                    raise ValueError(f"Row {idx + 2}: Item with item_no '{row['item_no']}' does not exist.")
 
-                # Handle VAT and Sale Price
-                vat = float(row['vat']) if 'vat' in row and not pd.isna(row['vat']) else 0.0
-                sale_price = float(row['sale_price']) if 'sale_price' in row and not pd.isna(row['sale_price']) else float(row['price'])
+                quantity = int(row['quantity'])
+                price = float(row['price'])
+                sale_price = float(row['sale_price']) if 'sale_price' in row and not pd.isna(row['sale_price']) else price
 
-                PurchaseItem.objects.create(
-                    purchase=purchase,
-                    item=item,
-                    quantity=int(row['quantity']),
-                    price=float(row['price']),
-                    vat=vat,
-                    sale_price=sale_price
+                total_item_price = price * quantity
+                total_net += total_item_price
+
+                purchase_items.append(
+                    PurchaseItem(
+                        purchase=purchase,
+                        item=item,
+                        quantity=quantity,
+                        price=price,
+                        sale_price=sale_price
+                    )
                 )
+
+            # Bulk create PurchaseItems
+            PurchaseItem.objects.bulk_create(purchase_items)
+
+            # Update Purchase totals
+            purchase.net_total = total_net
+            purchase.vat_amount = total_vat
+            purchase.grand_total = total_net + total_vat
+            purchase.remaining_amount = purchase.grand_total - purchase.paid_amount
+            purchase.save(update_fields=['net_total', 'vat_amount', 'grand_total', 'remaining_amount'])
 
             created.append(purchase.id)
 

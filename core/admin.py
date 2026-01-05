@@ -9,65 +9,94 @@ from .models import (
     Staff, User
 )
 
-# ---------------- Inlines ----------------
+# ================= INLINES =================
+
 class PurchaseItemInline(admin.TabularInline):
     model = PurchaseItem
     extra = 1
 
+
 class SaleItemInline(admin.TabularInline):
     model = SaleItem
     extra = 1
+    readonly_fields = ('total_price',)
+
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 1
 
+
 class SalaryTransactionInline(admin.TabularInline):
     model = SalaryTransaction
     extra = 0
     readonly_fields = ('paid_amount_snapshot',)
-    
-    # Optional: show snapshot of tracker paid_amount at time of transaction
+
     def paid_amount_snapshot(self, obj):
         return obj.amount
     paid_amount_snapshot.short_description = "Transaction Amount"
 
-# ---------------- Supplier ----------------
+
+# ================= SUPPLIER =================
+
 @admin.register(Supplier)
 class SupplierAdmin(admin.ModelAdmin):
     list_display = ('name', 'contact', 'email')
+    search_fields = ('name', 'contact', 'email')
 
-# ---------------- Category ----------------
+
+# ================= CATEGORY =================
+
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ('name',)
+    search_fields = ('name',)
 
-# ---------------- Stock ----------------
+
+# ================= STOCK =================
+
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
     list_display = (
         'item_no', 'name', 'category',
         'model', 'stock',
-        'purchase_price', 'sale_price', 'vat'
+        'purchase_price', 'sale_price'
     )
     search_fields = ('name', 'model', 'item_no')
     list_filter = ('category',)
 
-# ---------------- Purchase ----------------
+    # ✅ SAFETY: Prevent deleting stock used in transactions
+    def has_delete_permission(self, request, obj=None):
+        if obj and (
+            obj.purchaseitem_set.exists() or
+            obj.saleitem_set.exists() or
+            obj.orderitem_set.exists()
+        ):
+            return False
+        return super().has_delete_permission(request, obj)
+
+
+# ================= PURCHASE =================
+
 @admin.register(Purchase)
 class PurchaseAdmin(admin.ModelAdmin):
-    list_display = ('id', 'supplier', 'date', 'get_total_amount')
+    list_display = (
+        'id', 'supplier', 'date',
+        'grand_total', 'discount_amount', 'vat_amount', 'net_total',
+        'paid_amount', 'remaining_amount', 'status'
+    )
     inlines = [PurchaseItemInline]
-    readonly_fields = ('get_total_amount',)
+    readonly_fields = (
+        'grand_total', 'discount_amount', 'vat_amount', 'net_total',
+        'paid_amount', 'remaining_amount', 'status'
+    )
     date_hierarchy = 'date'
     list_select_related = ('supplier',)
     autocomplete_fields = ['created_by']
 
-    def get_total_amount(self, obj):
-        return sum(i.total_price() for i in obj.items.all())
-    get_total_amount.short_description = "Total Amount"
 
-# ---------------- Sale ----------------
+# ================= SALE =================
+
 @admin.register(Sale)
 class SaleAdmin(admin.ModelAdmin):
     list_display = (
@@ -76,29 +105,49 @@ class SaleAdmin(admin.ModelAdmin):
         'customer_name',
         'is_servicing',
         'bill_no',
-        'get_total_amount',
+        'get_net_total',        # ✅ changed
         'get_paid_amount',
+        'get_remaining_amount',
         'get_is_paid_status',
         'handled_by',
+        'technician_name',
+        'km_driven',
+        'bike_registration_no',
+        'vehicle_color',
     )
-    readonly_fields = ('get_total_amount', 'get_paid_amount', 'get_is_paid_status')
+    inlines = [SaleItemInline]
+    readonly_fields = (
+        'get_net_total',        # ✅ changed
+        'get_paid_amount',
+        'get_remaining_amount',
+        'get_is_paid_status'
+    )
     list_select_related = ('handled_by',)
     autocomplete_fields = ['handled_by']
 
-    def get_total_amount(self, obj):
-        return obj.total_amount
-    get_total_amount.short_description = "Total Amount"
+    # ---------------- COMPUTED FIELDS ----------------
+    def get_net_total(self, obj):
+        return obj.net_total
+    get_net_total.short_description = "Net Total"
 
     def get_paid_amount(self, obj):
-        return getattr(obj, 'paid_amount', 0)
+        return obj.paid_amount or 0
     get_paid_amount.short_description = "Paid Amount"
 
-    def get_is_paid_status(self, obj):
-        return obj.is_paid == 'paid'
-    get_is_paid_status.boolean = True
-    get_is_paid_status.short_description = "Fully Paid?"
+    def get_remaining_amount(self, obj):
+        return obj.remaining_amount or 0
+    get_remaining_amount.short_description = "Remaining Amount"
 
-# ---------------- Follow-Up ----------------
+    def get_is_paid_status(self, obj):
+        if obj.paid_amount >= (obj.net_total or 0):
+            return True
+        elif obj.paid_amount > 0:
+            return "Partial"
+        return False
+    get_is_paid_status.short_description = "Paid?"
+
+# ================= FOLLOW-UP =================
+
 @admin.register(FollowUpDashboard)
 class FollowUpDashboardAdmin(admin.ModelAdmin):
     list_display = (
@@ -116,7 +165,9 @@ class FollowUpDashboardAdmin(admin.ModelAdmin):
     list_select_related = ('assigned_to',)
     autocomplete_fields = ['assigned_to']
 
-# ---------------- Order ----------------
+
+# ================= ORDER =================
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
@@ -131,45 +182,92 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = ('total_amount', 'remaining_amount')
     date_hierarchy = 'order_date'
 
-# ---------------- Staff ----------------
+
+# ================= STAFF =================
+
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
-    list_display = ('name', 'designation', 'salary_mode', 'phone', 'address', 'email', 'is_active')
+    list_display = (
+        'name', 'designation', 'salary_mode',
+        'phone', 'address', 'email', 'is_active'
+    )
     list_filter = ('is_active', 'designation', 'salary_mode')
     search_fields = ('name', 'phone', 'email')
 
-# ---------------- SalaryTransaction ----------------
+
+# ================= SALARY TRANSACTION =================
+
 @admin.register(SalaryTransaction)
 class SalaryTransactionAdmin(admin.ModelAdmin):
-    list_display = ('staff', 'transaction_type', 'amount', 'payment_date', 'payment_mode', 'salary_tracker')
+    list_display = (
+        'staff',
+        'transaction_type',
+        'amount',
+        'payment_date',
+        'payment_mode',
+        'salary_tracker'
+    )
     list_filter = ('transaction_type', 'payment_mode', 'payment_date')
     search_fields = ('staff__name',)
     autocomplete_fields = ['staff', 'salary_tracker']
 
-# ---------------- Expense ----------------
+
+# ================= EXPENSE =================
+
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'expense_type', 'amount', 'expense_date', 'payment_mode', 'spent_by', 'reference_type', 'reference_id')
+    list_display = (
+        'title',
+        'expense_type',
+        'amount',
+        'expense_date',
+        'payment_mode',
+        'spent_by',
+        'reference_type',
+        'reference_id'
+    )
     list_filter = ('expense_type', 'payment_mode', 'expense_date')
     search_fields = ('title', 'spent_by__name')
 
-# ---------------- User ----------------
+
+# ================= USER =================
+
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('username', 'email', 'is_active', 'is_staff', 'is_superuser')
+    list_display = (
+        'username',
+        'email',
+        'is_active',
+        'is_staff',
+        'is_superuser'
+    )
     search_fields = ('username', 'email')
 
-# ---------------- SalaryTracker ----------------
+
+# ================= SALARY TRACKER =================
+
 @admin.register(SalaryTracker)
 class SalaryTrackerAdmin(admin.ModelAdmin):
-    list_display = ('date', 'staff', 'total_salary', 'paid_amount', 'remaining_amount', 'status', 'payment_mode')
+    list_display = (
+        'date',
+        'staff',
+        'total_salary',
+        'paid_amount_display',
+        'remaining_amount_display',
+        'status',
+        'payment_mode'
+    )
     list_filter = ('status', 'payment_mode', 'date')
     search_fields = ('staff__name',)
-    readonly_fields = ('paid_amount', 'remaining_amount')
+    readonly_fields = ('paid_amount_display', 'remaining_amount_display')
     inlines = [SalaryTransactionInline]
 
-    def paid_amount(self, obj):
-        return sum(t.amount for t in obj.transactions.all())
+    def paid_amount_display(self, obj):
+        return obj.transactions.aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+    paid_amount_display.short_description = "Paid Amount"
 
-    def remaining_amount(self, obj):
-        return obj.total_salary - self.paid_amount(obj)
+    def remaining_amount_display(self, obj):
+        return obj.total_salary - self.paid_amount_display(obj)
+    remaining_amount_display.short_description = "Remaining Amount"

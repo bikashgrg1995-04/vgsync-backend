@@ -48,3 +48,11 @@ def excel_bool(val):
     if val in [True, 1, "1", "TRUE", "true", "Yes", "yes"]:
         return True
     return False
+
+def recalc_sale_totals(sale):
+    total = sum(i.quantity * i.sale_price for i in sale.items.all())
+    sale.total_amount = total + (sale.labour_charge or 0)
+    sale.remaining_amount = max(
+        sale.total_amount - (sale.paid_amount or 0), 0
+    )
+    sale.save(update_fields=['total_amount', 'remaining_amount'])

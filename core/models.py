@@ -67,6 +67,7 @@ class SalaryTracker(models.Model):
     date = models.DateField(default=today_date)
     total_salary = models.FloatField(default=0, blank=True)  # monthly staff only
     paid_amount = models.FloatField(default=0)
+    note = models.CharField(max_length=100, null = True, blank= True)
 
     STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -75,7 +76,6 @@ class SalaryTracker(models.Model):
     ]
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     payment_mode = models.CharField(max_length=10, choices=[('cash','Cash'),('online','Online')], blank=True, null=True)
-    note = models.TextField(blank=True, null=True)
 
     @property
     def remaining_amount(self):
@@ -137,8 +137,6 @@ class SalaryTransaction(models.Model):
 
 
 # ------------------ Expense ------------------
-
-
 class Expense(models.Model):
     EXPENSE_TYPE_CHOICES = [
         ('salary', "Salary"),
@@ -195,7 +193,6 @@ class Stock(models.Model):
 
     purchase_price = models.FloatField(default=0)
     sale_price = models.FloatField(default=0)
-    vat = models.FloatField(default=0)
 
     image = models.ImageField(upload_to=upload_to_item, blank=True, null=True)
 
@@ -210,7 +207,9 @@ class Stock(models.Model):
             self.group = self.category.name
         super().save(*args, **kwargs)
 
-    def adjust_stock(self, qty):
+  
+    def adjust_stock(self, qty: int):
+        """Adjust stock safely"""
         self.stock = F('stock') + qty
         self.save(update_fields=['stock'])
         self.refresh_from_db()
@@ -220,61 +219,68 @@ class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
     date = models.DateTimeField(default=timezone.now)
 
-    vat_percentage = models.FloatField(default=13)
+    # FINANCIAL (UI CALCULATED)
+    net_total = models.FloatField(default=0)            # frontend bata pathaune
     discount_percentage = models.FloatField(default=0)
+    discount_amount = models.FloatField(default=0)
+    vat_percentage = models.FloatField(default=0)
+    vat_amount = models.FloatField(default=0)
+    grand_total = models.FloatField(default=0)          # frontend bata pathaune
+    paid_amount = models.FloatField(default=0)          # frontend bata pathaune
+    remaining_amount = models.FloatField(default=0)     # frontend bata pathaune
 
-    is_migrated = models.BooleanField(default=False)  # ✅ ADD
+    STATUS_CHOICES = [('pending','Pending'),('partial','Partial'),('paid','Paid')]
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
 
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    is_migrated = models.BooleanField(default=False)
+    PAID_FROM_CHOICES = (('cash', 'Cash'), ('online', 'Online'), ('both', 'Both'))
+    paid_from = models.CharField(max_length=20, choices=PAID_FROM_CHOICES, default='cash')
 
-    def __str__(self):
-        return f"Purchase #{self.id}"
+    def save(self, *args, **kwargs):
+        # Backend will NOT calculate totals
+        super().save(*args, **kwargs)
+
 
 class PurchaseItem(models.Model):
     purchase = models.ForeignKey(Purchase, related_name='items', on_delete=models.CASCADE)
     item = models.ForeignKey(Stock, on_delete=models.CASCADE)
-
     quantity = models.IntegerField()
     price = models.FloatField()
-    vat = models.FloatField(default=0,null=True, blank=True)
     sale_price = models.FloatField(default=0)
 
-    def total_price(self):
-        return self.quantity * self.price
+    def __str__(self):
+        return f"{self.item.name} x {self.quantity} @ {self.price}"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
-        # 🔴 STOP HERE for migrated (Excel) data
-        if self.purchase.is_migrated:
-            return
-
-        # Update item pricing + VAT
-        self.item.purchase_price = self.price
-        self.item.sale_price = self.sale_price
-        self.item.vat = self.vat if self.vat is not None else 0  # <-- force default
-        self.item.save(update_fields=['purchase_price', 'sale_price', 'vat'])
-
     def delete(self, *args, **kwargs):
-        #self.item.adjust_stock(-self.quantity)
         super().delete(*args, **kwargs)
+
 
 # ------------------ Sale ------------------
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+# ------------------ Sale ------------------from django.db import models
 class Sale(models.Model):
     sale_date = models.DateTimeField(default=timezone.now)
 
-    # ---------------- BASIC (COMMON) ----------------
+    # ---------------- BASIC INFO ----------------
     customer_name = models.CharField(max_length=100, blank=True, null=True)
     contact_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_model = models.CharField(max_length=50, blank=True, null=True)
 
+    handled_by = models.ForeignKey(
+        Staff, on_delete=models.SET_NULL, blank=True, null=True
+    )
+
+    # ---------------- SALE TYPE ----------------
     is_servicing = models.BooleanField(default=False)
 
-    # ---------------- SERVICE ONLY ----------------
+    # ---------------- SERVICE INFO ----------------
     km_driven = models.IntegerField(blank=True, null=True)
     job_card_no = models.CharField(max_length=50, blank=True, null=True)
     bike_registration_no = models.CharField(max_length=50, blank=True, null=True)
@@ -291,17 +297,23 @@ class Sale(models.Model):
     is_accident = models.BooleanField(default=False)
     is_warranty_job = models.BooleanField(default=False)
 
-    follow_up_date = models.DateField(blank=True, null=True)
-    post_service_feedback_date = models.DateField(blank=True, null=True)
-
     job_done_on_vehicle = models.TextField(blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
 
-    is_migrated = models.BooleanField(default=False)
-
-    # ---------------- FINANCIAL ----------------
-    total_amount = models.FloatField(default=0)
     labour_charge = models.FloatField(default=0)
+
+    follow_up_date = models.DateField(blank=True, null=True)
+    post_service_feedback_date = models.DateField(blank=True, null=True)
+
+    # ---------------- FINANCIAL (UI CALCULATED) ----------------
+    grand_total = models.FloatField(default=0)
+    discount_percentage = models.FloatField(default=0)
+    discount_amount = models.FloatField(default=0)
+
+    vat_percentage = models.FloatField(default=0)
+    vat_amount = models.FloatField(default=0)
+
+    net_total = models.FloatField(default=0)
     paid_amount = models.FloatField(default=0)
     remaining_amount = models.FloatField(default=0)
 
@@ -311,9 +323,7 @@ class Sale(models.Model):
         ('paid', 'Paid'),
     )
     is_paid = models.CharField(
-        max_length=20,
-        choices=PAID_STATUS_CHOICES,
-        default='not_paid'
+        max_length=20, choices=PAID_STATUS_CHOICES, default='not_paid'
     )
 
     PAID_FROM_CHOICES = (
@@ -321,49 +331,19 @@ class Sale(models.Model):
         ('online', 'Online'),
         ('both', 'Both'),
     )
-    paid_from = models.CharField(
-        max_length=20,
-        choices=PAID_FROM_CHOICES,
-        blank=True,
-        null=True
-    )
+    paid_from = models.CharField(max_length=20, blank=True, null=True)
 
-    handled_by = models.ForeignKey(
-        'Staff',
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True
-    )
+    is_migrated = models.BooleanField(default=False)
 
-    # ------------------------------------------------
-
-    def __str__(self):
-        return f"Sale #{self.id} ({'Service' if self.is_servicing else 'Stock'})"
-
-    # ---------------- PAYMENT LOGIC ----------------
-    def calculate_totals(self):
-        items_total = sum(
-            (item.quantity or 0) * (item.price or 0)
-            for item in self.items.all()
-        )
-
-        total_amount = items_total + (self.labour_charge or 0)
-        paid_amount = self.paid_amount or 0
-        remaining_amount = max(total_amount - paid_amount, 0)
-
-        if paid_amount >= total_amount and total_amount > 0:
-            is_paid = 'paid'
-        elif paid_amount > 0:
-            is_paid = 'partial'
-        else:
-            is_paid = 'not_paid'
-
-        return total_amount, remaining_amount, is_paid
-
-    # ---------------- SAVE (FINAL & SAFE) ----------------
     def save(self, *args, **kwargs):
-        # 🔒 STOCK SALE → wipe service-only fields
+        """
+        🔒 Backend responsibility:
+        - Clear service-only fields if not servicing
+        - Do NOT calculate money here
+        """
+
         if not self.is_servicing:
+            self.labour_charge = 0
             self.km_driven = None
             self.job_card_no = None
             self.bike_registration_no = None
@@ -376,42 +356,30 @@ class Sale(models.Model):
             self.is_repair_job = False
             self.is_accident = False
             self.is_warranty_job = False
+            self.technician_name = None
+            self.job_done_on_vehicle = None
 
-        super().save(*args, **kwargs)  # first save (PK required)
-
-        # 📅 SERVICE AUTO-DATES
+        # auto follow-up (business rule OK here)
         if self.is_servicing and self.delivery_date:
             if not self.post_service_feedback_date:
                 self.post_service_feedback_date = self.delivery_date + timedelta(days=3)
             if not self.follow_up_date:
                 self.follow_up_date = self.delivery_date + timedelta(days=30)
 
-        # 💰 CALCULATE TOTALS
-        total_amount, remaining_amount, is_paid = self.calculate_totals()
+        super().save(*args, **kwargs)
 
-        self.total_amount = total_amount
-        self.remaining_amount = remaining_amount
-        self.is_paid = is_paid
-
-        super().save(update_fields=[
-            'total_amount',
-            'remaining_amount',
-            'is_paid',
-            'post_service_feedback_date',
-            'follow_up_date',
-        ])
 
 class SaleItem(models.Model):
     sale = models.ForeignKey(Sale, related_name='items', on_delete=models.CASCADE)
-    item = models.ForeignKey('Stock', on_delete=models.CASCADE)
+    item = models.ForeignKey(Stock, on_delete=models.CASCADE)
+
     quantity = models.IntegerField()
-    price = models.FloatField()
+    sale_price = models.FloatField(default=0)
+    total_price = models.FloatField(default=0)
 
-    def total_price(self):
-        return self.quantity * self.price
-
-    def delete(self, *args, **kwargs):
-        super().delete(*args, **kwargs)
+    def save(self, *args, **kwargs):
+        self.total_price = self.quantity * self.sale_price
+        super().save(*args, **kwargs)
 
 
 

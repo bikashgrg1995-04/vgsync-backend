@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .views import (
     ExpenseViewSet,
+    FollowUpDashboardViewSet,
     SalaryTrackerViewSet,
     SalaryTransactionViewSet,
     UserViewSet,
@@ -12,7 +13,6 @@ from .views import (
     StockViewSet,
     PurchaseViewSet,
     SaleViewSet,
-    FollowUpDashboardViewSet,
     OrderViewSet,
     StaffViewSet,
     full_dashboard,
@@ -42,14 +42,14 @@ router.register(r'purchases', PurchaseViewSet, basename='purchase')
 # ---------------- Sale ----------------
 router.register(r'sales', SaleViewSet, basename='sale')
 
-# ---------------- Follow-Up Dashboard ----------------
-router.register(r'followups', FollowUpDashboardViewSet, basename='followup-dashboard')
-
 # ---------------- Orders ----------------
 router.register(r'orders', OrderViewSet, basename='order')
 
 # ---------------- Staff ----------------
 router.register(r'staffs', StaffViewSet, basename='staff')
+
+# ---------------- Follow-Ups ----------------
+router.register(r'followups', FollowUpDashboardViewSet, basename='followup')
 
 router.register(r'salarytracker', SalaryTrackerViewSet)
 router.register(r'salarytransactions', SalaryTransactionViewSet)
