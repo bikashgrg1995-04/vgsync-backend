@@ -57,6 +57,7 @@ class StaffSerializer(serializers.ModelSerializer):
             'name',
             'phone',          # model field
             'email',
+            'address',
             'designation',
             'designation_display',
             'salary_mode',
@@ -93,9 +94,10 @@ class StockSerializer(serializers.ModelSerializer):
 
 # ---------------- PURCHASE ITEM ----------------
 class PurchaseItemSerializer(serializers.ModelSerializer):
+    item_name = serializers.CharField(source='item.name', read_only=True)
     class Meta:
         model = PurchaseItem
-        fields = ('id', 'item', 'quantity', 'price')
+        fields = ('id', 'item', 'item_name', 'quantity', 'price')
 
 
 # ---------------- PURCHASE ----------------
@@ -106,7 +108,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
         model = Purchase
         fields = (
             'id', 'supplier', 'date', 'created_by',
-            'grand_total', 'discount_amount', 'vat_amount', 'net_total',
+            'grand_total', 'discount_amount', 'net_total',
             'paid_amount', 'remaining_amount', 'status',
             'is_migrated',  # migration flag
             'items',
@@ -194,12 +196,11 @@ class SaleReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            'id', 'sale_date', 'customer_name', 'contact_no',
+            'id', 'sale_date', 'customer_name', 'contact_no',  'bill_no',
             'handled_by', 'is_servicing',
 
             # totals
-            'grand_total', 'discount_percentage', 'discount_amount',
-            'vat_percentage', 'vat_amount', 'net_total',
+            'grand_total', 'discount_percentage', 'discount_amount', 'net_total',
             'paid_amount', 'remaining_amount', 'is_paid',
 
             'items'
@@ -237,7 +238,7 @@ class StockSaleSerializer(serializers.ModelSerializer):
             'id', 'sale_date', 'customer_name', 'contact_no',
             'bill_no', 'remarks',
             'grand_total', 'discount_percentage', 'discount_amount',
-            'vat_percentage', 'vat_amount', 'net_total',
+            'net_total',
             'paid_amount', 'remaining_amount', 'is_paid', 'paid_from',
             'handled_by', 'items'
         ]
@@ -288,13 +289,13 @@ class ServiceSaleReadSerializer(serializers.ModelSerializer):
             'id', 'sale_date', 'customer_name', 'contact_no', 'handled_by', 'bill_no', 'remarks',
             'is_servicing',
             # Service fields
-            'vehicle_model', 'job_card_no', 'bike_registration_no', 'vehicle_color', 'km_driven',
-            'labour_charge', 'is_free_servicing', 'is_repair_job', 'is_accident', 'is_warranty_job',
+            'vehicle_model', 'job_card_no', 'bike_registration_no', 'vehicle_type','vehicle_color', 'km_driven',
+            'labour_charge', 'is_free_servicing', 'is_repair_job', 'is_accident', 'is_warranty_job', 'job_done_on_vehicle', 'technician_name',
             'received_date', 'delivery_date', 'follow_up_date', 'post_service_feedback_date',
 
             # totals
             'grand_total', 'discount_percentage', 'discount_amount',
-            'vat_percentage', 'vat_amount', 'net_total', 'paid_amount', 'remaining_amount', 'is_paid',
+            'net_total', 'paid_amount', 'remaining_amount', 'is_paid',
 
             'items'
         ]
@@ -306,6 +307,7 @@ class ServiceSaleSerializer(StockSaleSerializer):
             'vehicle_model',
             'job_card_no',
             'bike_registration_no',
+            'vehicle_type',
             'vehicle_color',
             'km_driven',
             'labour_charge',
@@ -313,6 +315,8 @@ class ServiceSaleSerializer(StockSaleSerializer):
             'is_repair_job',
             'is_accident',
             'is_warranty_job',
+            'job_done_on_vehicle', 
+            'technician_name',
             'received_date',
             'delivery_date',
             'follow_up_date',

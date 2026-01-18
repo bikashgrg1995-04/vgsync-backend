@@ -82,12 +82,12 @@ class StockAdmin(admin.ModelAdmin):
 class PurchaseAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'supplier', 'date',
-        'grand_total', 'discount_amount', 'vat_amount', 'net_total',
+        'grand_total', 'discount_amount', 'net_total',
         'paid_amount', 'remaining_amount', 'status'
     )
     inlines = [PurchaseItemInline]
     readonly_fields = (
-        'grand_total', 'discount_amount', 'vat_amount', 'net_total',
+        'grand_total', 'discount_amount', 'net_total',
         'paid_amount', 'remaining_amount', 'status'
     )
     date_hierarchy = 'date'
@@ -113,6 +113,7 @@ class SaleAdmin(admin.ModelAdmin):
         'technician_name',
         'km_driven',
         'bike_registration_no',
+        'vehicle_type',
         'vehicle_color',
     )
     inlines = [SaleItemInline]

@@ -223,8 +223,6 @@ class Purchase(models.Model):
     net_total = models.FloatField(default=0)            # frontend bata pathaune
     discount_percentage = models.FloatField(default=0)
     discount_amount = models.FloatField(default=0)
-    vat_percentage = models.FloatField(default=0)
-    vat_amount = models.FloatField(default=0)
     grand_total = models.FloatField(default=0)          # frontend bata pathaune
     paid_amount = models.FloatField(default=0)          # frontend bata pathaune
     remaining_amount = models.FloatField(default=0)     # frontend bata pathaune
@@ -266,6 +264,10 @@ User = get_user_model()
 
 # ------------------ Sale ------------------from django.db import models
 class Sale(models.Model):
+    VEHICLE_TYPE_CHOICES = (
+        ('bike', 'Bike'),
+        ('scooty', 'Scooty')
+    )
     sale_date = models.DateTimeField(default=timezone.now)
 
     # ---------------- BASIC INFO ----------------
@@ -284,6 +286,12 @@ class Sale(models.Model):
     km_driven = models.IntegerField(blank=True, null=True)
     job_card_no = models.CharField(max_length=50, blank=True, null=True)
     bike_registration_no = models.CharField(max_length=50, blank=True, null=True)
+    vehicle_type = models.CharField(
+        max_length=10,
+        choices=VEHICLE_TYPE_CHOICES,
+        blank=True,
+        null=True
+    )
     vehicle_color = models.CharField(max_length=30, blank=True, null=True)
 
     received_date = models.DateField(blank=True, null=True)
@@ -309,9 +317,6 @@ class Sale(models.Model):
     grand_total = models.FloatField(default=0)
     discount_percentage = models.FloatField(default=0)
     discount_amount = models.FloatField(default=0)
-
-    vat_percentage = models.FloatField(default=0)
-    vat_amount = models.FloatField(default=0)
 
     net_total = models.FloatField(default=0)
     paid_amount = models.FloatField(default=0)
@@ -347,6 +352,7 @@ class Sale(models.Model):
             self.km_driven = None
             self.job_card_no = None
             self.bike_registration_no = None
+            self.vehicle_type = None
             self.vehicle_color = None
             self.received_date = None
             self.delivery_date = None
@@ -450,9 +456,15 @@ class FollowUpDashboard(models.Model):
     def terminate(self, reason=None):
         self.status = "terminated"
         self.terminated_at = timezone.now()
+
+        fields = ["status", "terminated_at"]
+
         if reason:
             self.reason = reason
-        self.save(update_fields=["status", "terminated_at", "reason"])
+            fields.append("reason")
+
+        self.save(update_fields=fields)
+
 
     class Meta:
         ordering = ['follow_up_date']

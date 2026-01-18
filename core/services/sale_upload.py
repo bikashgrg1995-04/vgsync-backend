@@ -80,6 +80,7 @@ def upload_sales_excel(file):
                     km_driven=clean(first.get('km_driven')) if is_servicing else None,
                     job_card_no=clean(first.get('job_card_no')) if is_servicing else None,
                     bike_registration_no=clean(first.get('bike_registration_no')) if is_servicing else None,
+                    vehicle_type = clean(first.get('vehicle_type')) if is_servicing else None,
                     vehicle_color=clean(first.get('vehicle_color')) if is_servicing else None,
                     received_date=parse_dt(first.get('received_date')) if is_servicing else None,
                     delivery_date=parse_dt(first.get('delivery_date')) if is_servicing else None,

@@ -56,3 +56,9 @@ def recalc_sale_totals(sale):
         sale.total_amount - (sale.paid_amount or 0), 0
     )
     sale.save(update_fields=['total_amount', 'remaining_amount'])
+
+
+#credit day count
+def credit_days(from_date):
+    today = timezone.now().date()
+    return (today - from_date.date()).days
