@@ -3,7 +3,7 @@ from django.db import transaction
 from datetime import date, timedelta
 
 from core.services.utils import extract_item_no, recalc_sale_totals
-from core.signals import sync_purchase_expense
+
 
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
@@ -122,9 +122,8 @@ class PurchaseSerializer(serializers.ModelSerializer):
         for item_data in items_data:
             PurchaseItem.objects.create(purchase=purchase, **item_data)
 
-        # Force expense creation even if migrated
-        if purchase.items.exists():
-            sync_purchase_expense(PurchaseItem, purchase.items.first(), created=True)
+        # ✅ NO need to call sync_purchase_expense manually
+        # Signal will handle expense creation automatically
 
         return purchase
 
@@ -135,7 +134,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
         # Update main purchase fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        instance.save()
+        instance.save()  # ✅ Signal will trigger automatically
 
         # Update items only if provided (PATCH safe)
         if items_data is not None:
@@ -145,12 +144,9 @@ class PurchaseSerializer(serializers.ModelSerializer):
             for item_data in items_data:
                 PurchaseItem.objects.create(purchase=instance, **item_data)
 
-        # Force expense sync even if migrated
-        if instance.items.exists():
-            sync_purchase_expense(PurchaseItem, instance.items.first(), created=False)
+        # ✅ NO need to call sync_purchase_expense manually
 
         return instance
-
 
 
 # ---------------- SALE ITEM ----------------
@@ -234,6 +230,8 @@ class StockSaleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Sale
+        sale_ref = serializers.ReadOnlyField()
+
         fields = [
             'id', 'sale_date', 'customer_name', 'contact_no',
             'bill_no', 'remarks',
@@ -373,11 +371,19 @@ class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = [
-            'id', 'expense_date', 'title', 'expense_type',
-            'amount', 'payment_mode', 'reference_type', 'reference_id',
-            'note', 'spent_by', 'created_at'
+            'id',
+            'expense_date',
+            'title',
+            'expense_type',
+            'amount',    
+            'payment_mode',
+            'reference_type',
+            'reference_id',
+            'note',
+            'spent_by',
+            'created_at',
         ]
-
+        read_only_fields = ['remaining_amount', 'status', 'created_at']
 
 # ---------------- ORDER ----------------
 class OrderItemSerializer(serializers.ModelSerializer):

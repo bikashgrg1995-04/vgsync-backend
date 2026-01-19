@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime, parse_date
 from core.models import Sale, SaleItem, Stock, Staff
+from core.services.utils import recalc_sale_totals
 
 # ---------- HELPERS ----------
 def is_nan(val):
@@ -59,7 +60,7 @@ def upload_sales_excel(file):
             with transaction.atomic():
                 first = rows.iloc[0]
 
-                # Determine service vs stock sale
+                # Determine if this sale includes servicing
                 is_servicing = parse_bool(first.get('is_servicing'))
 
                 # handled_by (optional)
@@ -80,7 +81,7 @@ def upload_sales_excel(file):
                     km_driven=clean(first.get('km_driven')) if is_servicing else None,
                     job_card_no=clean(first.get('job_card_no')) if is_servicing else None,
                     bike_registration_no=clean(first.get('bike_registration_no')) if is_servicing else None,
-                    vehicle_type = clean(first.get('vehicle_type')) if is_servicing else None,
+                    vehicle_type=clean(first.get('vehicle_type')) if is_servicing else None,
                     vehicle_color=clean(first.get('vehicle_color')) if is_servicing else None,
                     received_date=parse_dt(first.get('received_date')) if is_servicing else None,
                     delivery_date=parse_dt(first.get('delivery_date')) if is_servicing else None,
@@ -89,7 +90,7 @@ def upload_sales_excel(file):
                     is_free_servicing=parse_bool(first.get('is_free_servicing')) if is_servicing else False,
                     is_repair_job=parse_bool(first.get('is_repair_job')) if is_servicing else False,
                     is_accident=parse_bool(first.get('is_accident')) if is_servicing else False,
-                    is_warranty_job=parse_bool(first.get('is_warrenty_job')) if is_servicing else False,
+                    is_warranty_job=parse_bool(first.get('is_warranty_job')) if is_servicing else False,
                     follow_up_date=parse_dt(first.get('follow_up_date')) if is_servicing else None,
                     post_service_feedback_date=parse_dt(first.get('post_service_feedback_date')) if is_servicing else None,
                     job_done_on_vehicle=clean(first.get('job_done_on_vehicle')) if is_servicing else None,
@@ -102,8 +103,7 @@ def upload_sales_excel(file):
                     is_migrated=True,
                 )
 
-                # ---------- CREATE SALE ITEMS ----------
-                sale_items = []
+                # ---------- CREATE SALE ITEMS (loop to trigger signals) ----------
                 for idx, r in rows.iterrows():
                     try:
                         item_no = str(r['item_no']).strip().upper()
@@ -111,26 +111,20 @@ def upload_sales_excel(file):
                         quantity = int(clean(r.get('quantity')) or 0)
                         rate = float(clean(r.get('rate')) or stock.sale_price)
 
-                        sale_items.append(
-                            SaleItem(
-                                sale=sale,
-                                item=stock,
-                                quantity=quantity,
-                                sale_price=rate,
-                                total_price=quantity * rate
-                            )
+                        sale_item = SaleItem(
+                            sale=sale,
+                            item=stock,
+                            quantity=quantity,
+                            sale_price=rate,
+                            total_price=quantity * rate
                         )
-
-                        # Adjust stock only for non-service sale
-                        if not sale.is_servicing:
-                            stock.adjust_stock(-quantity)
+                        # Save individually to trigger pre_save/post_save signals
+                        sale_item.save()
 
                     except Stock.DoesNotExist:
                         raise ValueError(f"Row {idx + 2}: Item with item_no '{r['item_no']}' does not exist.")
                     except Exception as e:
                         raise ValueError(f"Row {idx + 2}: {str(e)}")
-
-                SaleItem.objects.bulk_create(sale_items)
 
                 # ---------- CALCULATE TOTALS ----------
                 calculate_sale_totals(sale)

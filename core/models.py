@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
 from django.db.models import F
@@ -264,10 +264,14 @@ User = get_user_model()
 
 # ------------------ Sale ------------------from django.db import models
 class Sale(models.Model):
+    
     VEHICLE_TYPE_CHOICES = (
         ('bike', 'Bike'),
         ('scooty', 'Scooty')
     )
+
+
+    sale_ref = models.CharField(max_length=50, unique=True)
     sale_date = models.DateTimeField(default=timezone.now)
 
     # ---------------- BASIC INFO ----------------
@@ -371,6 +375,16 @@ class Sale(models.Model):
                 self.post_service_feedback_date = self.delivery_date + timedelta(days=3)
             if not self.follow_up_date:
                 self.follow_up_date = self.delivery_date + timedelta(days=30)
+
+        if not self.sale_ref:
+            with transaction.atomic():
+                last_sale = (
+                    Sale.objects.select_for_update()
+                    .order_by('-id')
+                    .first()
+                )
+                next_id = (last_sale.id + 1) if last_sale else 1
+                self.sale_ref = f"SALE-{next_id:06d}"
 
         super().save(*args, **kwargs)
 

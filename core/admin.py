@@ -101,6 +101,7 @@ class PurchaseAdmin(admin.ModelAdmin):
 class SaleAdmin(admin.ModelAdmin):
     list_display = (
         'id',
+        'sale_ref',
         'sale_date',
         'customer_name',
         'is_servicing',
@@ -121,7 +122,8 @@ class SaleAdmin(admin.ModelAdmin):
         'get_net_total',        # ✅ changed
         'get_paid_amount',
         'get_remaining_amount',
-        'get_is_paid_status'
+        'get_is_paid_status',
+        'sale_ref'
     )
     list_select_related = ('handled_by',)
     autocomplete_fields = ['handled_by']

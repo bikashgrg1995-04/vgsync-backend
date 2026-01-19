@@ -93,7 +93,8 @@ def full_dashboard_service(period="monthly"):
         })
 
     # ---------------- EXPENSE ----------------
-    expense_qs = Expense.objects.filter(expense_date__gte=start_date)
+    expense_qs = Expense.objects.filter(created_at__date__gte=start_date)
+
 
     def category_total(qs, category):
         if category in ["salary", "operational"]:

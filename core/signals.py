@@ -1,6 +1,8 @@
 from datetime import timedelta
 from django.utils import timezone
-from django.db.models.signals import post_save, pre_save, pre_delete, post_delete
+from django.db.models.signals import (
+    post_save, pre_save, pre_delete, post_delete
+)
 from django.dispatch import receiver
 from django.db.models import F, Sum
 from django.db import transaction
@@ -22,9 +24,7 @@ def get_purchase_total(purchase):
         total=Sum(F('quantity') * F('price'))
     )['total'] or 0
 
-# =====================================================
-# PURCHASE ITEM → STOCK
-# =====================================================
+
 @receiver(pre_save, sender=PurchaseItem)
 def store_old_purchase_qty(sender, instance, **kwargs):
     if instance.pk:
@@ -37,82 +37,90 @@ def store_old_purchase_qty(sender, instance, **kwargs):
     else:
         instance._old_quantity = 0
 
+
 @receiver(post_save, sender=PurchaseItem)
 @transaction.atomic
 def adjust_stock_on_purchase_save(sender, instance, **kwargs):
-    # Stock adjust only if NOT migrated
     if not instance.purchase.is_migrated:
         diff = instance.quantity - getattr(instance, '_old_quantity', 0)
-        if diff != 0:
-            Stock.objects.select_for_update().filter(pk=instance.item_id).update(
-                stock=F('stock') + diff
-            )
-        Stock.objects.filter(pk=instance.item_id).update(purchase_price=instance.price)
+        if diff:
+            Stock.objects.select_for_update().filter(
+                pk=instance.item_id
+            ).update(stock=F('stock') + diff)
+
+        Stock.objects.filter(pk=instance.item_id).update(
+            purchase_price=instance.price
+        )
+
+    # ---- Recalculate Purchase ----
+    purchase = instance.purchase
+    purchase.net_total = get_purchase_total(purchase)
+    purchase.save(update_fields=['net_total'])
+
 
 @receiver(pre_delete, sender=PurchaseItem)
 @transaction.atomic
 def restore_stock_on_purchase_delete(sender, instance, **kwargs):
-    # Stock adjust only if NOT migrated
     if not instance.purchase.is_migrated:
-        Stock.objects.select_for_update().filter(pk=instance.item_id).update(
-            stock=F('stock') - instance.quantity
-        )
-        latest_purchase_item = PurchaseItem.objects.filter(item_id=instance.item_id).exclude(pk=instance.pk).order_by('-id').first()
-        new_price = latest_purchase_item.price if latest_purchase_item else 0
-        Stock.objects.filter(pk=instance.item_id).update(purchase_price=new_price)
+        Stock.objects.select_for_update().filter(
+            pk=instance.item_id
+        ).update(stock=F('stock') - instance.quantity)
 
-# =====================================================
-# PURCHASE → EXPENSE
-# =====================================================
-@receiver(post_save, sender=PurchaseItem)
-@receiver(post_delete, sender=PurchaseItem)
+        latest = (
+            PurchaseItem.objects
+            .filter(item_id=instance.item_id)
+            .exclude(pk=instance.pk)
+            .order_by('-id')
+            .first()
+        )
+        Stock.objects.filter(pk=instance.item_id).update(
+            purchase_price=latest.price if latest else 0
+        )
+
+    purchase = instance.purchase
+    purchase.net_total = get_purchase_total(purchase)
+    purchase.save(update_fields=['net_total'])
+
+@receiver(post_save, sender=Purchase)
 @transaction.atomic
 def sync_purchase_expense(sender, instance, **kwargs):
-    purchase = instance.purchase
+    purchase = instance
 
-    # Use net_total if available
-    total_amount = getattr(purchase, '_expense_amount_override', None)
-    if total_amount is None:
-        total_amount = purchase.net_total or get_purchase_total(purchase)
+    total_amount = purchase.net_total or get_purchase_total(purchase)
 
     expense = Expense.objects.filter(
         reference_type='purchase',
         reference_id=purchase.id
     ).first()
 
-    # No items → delete expense
+    # ---- No items → delete expense ----
     if total_amount <= 0:
         if expense:
             expense.delete()
         return
 
-    # Create or update expense (even if migrated)
+    title = f"Purchase - {purchase.supplier.name if purchase.supplier else 'Unknown'}"
+
     if not expense:
         Expense.objects.create(
             reference_type='purchase',
             reference_id=purchase.id,
-            title=f"Purchase - {purchase.supplier.name}",
+            title=title,
             expense_type='operational',
             amount=total_amount,
-            expense_date=purchase.date.date() if purchase.date else timezone.now().date(),
-            payment_mode='cash',
+            expense_date=(
+                purchase.date.date()
+                if purchase.date else timezone.now().date()
+            ),
+            payment_mode=getattr(purchase, 'payment_mode', 'cash'),
             spent_by=None,
-            note=f"Auto expense for Purchase #{purchase.id}"
+            note=f"Auto-generated expense for Purchase #{purchase.id}"
         )
     else:
         expense.amount = total_amount
-        expense.title = f"Purchase - {purchase.supplier.name}"
+        expense.title = title
         expense.save(update_fields=['amount', 'title'])
 
-
-@receiver(post_delete, sender=PurchaseItem)
-def delete_purchase_expense(sender, instance, **kwargs):
-    Expense.objects.filter(reference_type='purchase', reference_id=instance.purchase.id).delete()
-
-
-@receiver(post_delete, sender=Purchase)
-def delete_purchase_expense_on_purchase_delete(sender, instance, **kwargs):
-    Expense.objects.filter(reference_type='purchase', reference_id=instance.id).delete()
 
 
 # =====================================================
@@ -141,6 +149,47 @@ def adjust_stock_on_sale_save(sender, instance, **kwargs):
 def restore_stock_on_sale_delete(sender, instance, **kwargs):
     if not instance.sale.is_migrated:
         Stock.objects.select_for_update().filter(pk=instance.item_id).update(stock=F('stock') + instance.quantity)
+
+@receiver(post_save, sender=Sale)
+@transaction.atomic
+def sync_sale_income(sender, instance, **kwargs):
+    sale = instance
+
+    # Don't create income for migrated/imported sales until totals are ready
+    if getattr(sale, "is_migrated", False):
+        return
+
+    total_amount = sale.net_total or 0  # use net_total which is already calculated
+
+    income = Expense.objects.filter(
+        reference_type='sale',
+        reference_id=sale.id
+    ).first()
+
+    if total_amount <= 0:
+        if income:
+            income.delete()
+        return
+
+    title = f"Sale - {sale.customer_name or 'Walk-in'}"
+
+    if not income:
+        Expense.objects.create(
+            reference_type='sale',
+            reference_id=sale.id,
+            title=title,
+            expense_type='income',
+            amount=total_amount,
+            expense_date=sale.sale_date.date() if sale.sale_date else timezone.now().date(),
+            payment_mode=sale.payment_mode or 'cash',
+            spent_by=None,
+            note=f"Auto-generated income for Sale #{sale.id}"
+        )
+    else:
+        income.amount = total_amount
+        income.title = title
+        income.save(update_fields=['amount', 'title'])
+
 
 # =====================================================
 # SALE → FOLLOW UP DASHBOARD
