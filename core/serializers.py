@@ -82,14 +82,9 @@ class StaffSerializer(serializers.ModelSerializer):
 
 # ---------------- STOCK ----------------
 class StockSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
-
     class Meta:
         model = Stock
-        fields = [
-            'id', 'item_no', 'name', 'group', 'model', 'category', 'category_name',
-            'stock', 'purchase_price', 'sale_price', 'image'
-        ]
+        fields = '__all__'
 
 
 # ---------------- PURCHASE ITEM ----------------

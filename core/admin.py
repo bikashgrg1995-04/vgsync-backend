@@ -54,16 +54,30 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 # ================= STOCK =================
-
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
     list_display = (
-        'item_no', 'name', 'category',
-        'model', 'stock',
-        'purchase_price', 'sale_price'
+        'item_no',
+        'name',
+        'category',
+        'model',
+        'block',            # ✅ ADD
+        'stock',
+        'purchase_price',
+        'sale_price',
     )
-    search_fields = ('name', 'model', 'item_no')
-    list_filter = ('category',)
+
+    search_fields = (
+        'name',
+        'model',
+        'item_no',
+        'block',            # ✅ ADD
+    )
+
+    list_filter = (
+        'category',
+        'block',            # ✅ ADD
+    )
 
     # ✅ SAFETY: Prevent deleting stock used in transactions
     def has_delete_permission(self, request, obj=None):
@@ -74,6 +88,7 @@ class StockAdmin(admin.ModelAdmin):
         ):
             return False
         return super().has_delete_permission(request, obj)
+
 
 
 # ================= PURCHASE =================

@@ -180,12 +180,11 @@ class Supplier(models.Model):
 
     def __str__(self):
         return self.name
-
-# ------------------ Stock ------------------
 class Stock(models.Model):
     item_no = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=100)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
+
     group = models.CharField(max_length=100, blank=True, null=True)
     model = models.CharField(max_length=100)
 
@@ -193,6 +192,14 @@ class Stock(models.Model):
 
     purchase_price = models.FloatField(default=0)
     sale_price = models.FloatField(default=0)
+
+    # ✅ NEW FIELD
+    block = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Stock location e.g. Block A / Godown 1 / Rack B2"
+    )
 
     image = models.ImageField(upload_to=upload_to_item, blank=True, null=True)
 
@@ -207,12 +214,11 @@ class Stock(models.Model):
             self.group = self.category.name
         super().save(*args, **kwargs)
 
-  
     def adjust_stock(self, qty: int):
-        """Adjust stock safely"""
         self.stock = F('stock') + qty
         self.save(update_fields=['stock'])
         self.refresh_from_db()
+
 
 # ------------------ Purchase ------------------
 class Purchase(models.Model):
