@@ -1,12 +1,12 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 
 from .views import (
-    ExpenseViewSet,
-    FollowUpDashboardViewSet,
-    SalaryTrackerViewSet,
-    SalaryTransactionViewSet,
+    # ================= ViewSets =================
     UserViewSet,
     SupplierViewSet,
     CategoryViewSet,
@@ -15,12 +15,25 @@ from .views import (
     SaleViewSet,
     OrderViewSet,
     StaffViewSet,
-    full_dashboard,
-    order_excel_upload,
-    stock_excel_upload,
-    upload_purchase_excel_api,
-    upload_sales_excel_api,
+    FollowUpDashboardViewSet,
+    SalaryTrackerViewSet,
+    SalaryTransactionViewSet,
+    ExpenseViewSet,
+    dashboard_charts_api,
+    dashboard_credit_api,
+    followups_api,
+    low_stock_api,
+
+    # ================= Excel Upload =================
+    order_excel_upload_api,
+    orders_api,
+    purchase_excel_upload_api,
+    sale_excel_upload_api,
+    staff_salary_api,
+    stock_excel_upload_api,
 )
+
+
 
 router = DefaultRouter()
 
@@ -51,28 +64,63 @@ router.register(r'staffs', StaffViewSet, basename='staff')
 # ---------------- Follow-Ups ----------------
 router.register(r'followups', FollowUpDashboardViewSet, basename='followup')
 
-router.register(r'salarytracker', SalaryTrackerViewSet)
-router.register(r'salarytransactions', SalaryTransactionViewSet)
-router.register(r'expenses', ExpenseViewSet)
+# ---------------- Salary & Expense ----------------
+router.register(r'salarytracker', SalaryTrackerViewSet, basename='salarytracker')
+router.register(r'salarytransactions', SalaryTransactionViewSet, basename='salarytransaction')
+router.register(r'expenses', ExpenseViewSet, basename='expense')
 
+# =================================================
+# 🌐 URL PATTERNS
+# =================================================
 urlpatterns = [
-    # API routes
+
+    # ================= API ROUTES =================
     path('', include(router.urls)),
 
-    # JWT Authentication
+    # ================= AUTH =================
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    # Dashboard overview
-    path('dashboard/', full_dashboard, name='dashboard-summary'),
-    
-    #stock_upload_file
-    path('stock/excel-upload/', stock_excel_upload),
+    # ================= DASHBOARD =================
+    # Charts only
+    path(
+        "dashboard/charts/",
+        dashboard_charts_api,
+        name="dashboard-charts",
+    ),
 
-    # order_upload_file
-    path("order-excel-upload/", order_excel_upload),
+    # Credit only
+    path(
+        "dashboard/credit/",
+        dashboard_credit_api,
+        name="dashboard-credit",
+    ),
 
+    # Tables (separate)
+    path(
+        "dashboard/tables/followups/",
+        followups_api,
+        name="dashboard-followups",
+    ),
+    path(
+        "dashboard/tables/low-stock/",
+        low_stock_api,
+        name="dashboard-low-stock",
+    ),
+    path(
+        "dashboard/tables/orders/",
+        orders_api,
+        name="dashboard-orders",
+    ),
+    path(
+        "dashboard/tables/staff-salaries/",
+        staff_salary_api,
+        name="dashboard-staff-salaries",
+    ),
 
-    path('upload/purchase-excel/', upload_purchase_excel_api),
-    path('upload/sales-excel/', upload_sales_excel_api),
+    # ================= EXCEL UPLOAD =================
+    path("upload/purchase-excel/", purchase_excel_upload_api),
+    path("upload/sales-excel/", sale_excel_upload_api),
+    path("upload/stock-excel/", stock_excel_upload_api),
+    path("upload/order-excel/", order_excel_upload_api),
 ]

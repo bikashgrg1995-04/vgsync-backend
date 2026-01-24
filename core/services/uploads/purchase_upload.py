@@ -5,9 +5,22 @@ from core.models import Purchase, PurchaseItem, Staff, Supplier, Stock
 
 @transaction.atomic
 def upload_purchase_excel(file, user):
+    """
+    Upload purchases from Excel.
+    Expects columns:
+    - purchase_ref
+    - supplier
+    - date
+    - item_no
+    - quantity
+    - price
+    - staff_id (optional)
+    - discount (optional)
+    """
+
     df = pd.read_excel(file)
 
-    required_cols = ['purchase_ref', 'supplier', 'date', 'item_no', 'quantity', 'price']
+    required_cols = ['purchase_ref', 'supplier', 'date', 'item_no', 'quantity', 'price', 'staff_id']
     for col in required_cols:
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
@@ -18,22 +31,24 @@ def upload_purchase_excel(file, user):
     for ref, rows in grouped:
         try:
             # ---------------- Supplier ----------------
-            supplier = Supplier.objects.get(name=rows.iloc[0]['supplier'])
+            supplier_name = rows.iloc[0]['supplier']
+            supplier = Supplier.objects.get(name=supplier_name)
 
             # ---------------- Staff ----------------
-            staff = getattr(user, 'staff', None)
-            if not staff:
-                staff, _ = Staff.objects.get_or_create(
-                    name=f"Imported by {user.username}",
-                    email=user.email
-                )
+            staff_id = rows.iloc[0]['staff_id']
+            staff = None
+            if not pd.isna(staff_id):
+                try:
+                    staff = Staff.objects.get(id=int(staff_id))
+                except Staff.DoesNotExist:
+                    staff = None  # Staff not found, leave as None
 
             # ---------------- Purchase ----------------
             purchase = Purchase.objects.create(
                 supplier=supplier,
                 date=rows.iloc[0]['date'],
                 created_by=staff,
-                is_migrated=True   # Important to prevent stock update signals
+                is_migrated=True  # important to prevent automatic stock signals
             )
 
             items = []
@@ -41,42 +56,43 @@ def upload_purchase_excel(file, user):
 
             # ---------------- Items ----------------
             for _, row in rows.iterrows():
-                item = Stock.objects.get(item_no=row['item_no'])
+                item_no = row['item_no']
+                try:
+                    stock_item = Stock.objects.get(item_no=item_no)
+                except Stock.DoesNotExist:
+                    raise ValueError(f"Stock item not found: {item_no}")
 
                 qty = int(row['quantity'])
                 price = float(row['price'])
 
-                net_total += qty * price  # <-- Only use purchase price
+                net_total += qty * price
 
                 items.append(
                     PurchaseItem(
                         purchase=purchase,
-                        item=item,
+                        item=stock_item,
                         quantity=qty,
                         price=price
                     )
                 )
 
+            # Bulk create items
             PurchaseItem.objects.bulk_create(items)
 
-            # ---------------- Discount (Purchase level) ----------------
+            # ---------------- Discount ----------------
             discount = (
                 float(rows.iloc[0]['discount'])
                 if 'discount' in df.columns and not pd.isna(rows.iloc[0]['discount'])
                 else 0
             )
 
+            # ---------------- Totals ----------------
             purchase.net_total = net_total
             purchase.discount_amount = discount
             purchase.grand_total = net_total - discount
             purchase.remaining_amount = purchase.grand_total
 
-            purchase.save(update_fields=[
-                'net_total',
-                'discount_amount',
-                'grand_total',
-                'remaining_amount'
-            ])
+            purchase.save(update_fields=['net_total', 'discount_amount', 'grand_total', 'remaining_amount'])
 
             created.append(purchase.id)
 

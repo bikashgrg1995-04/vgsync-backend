@@ -1,22 +1,24 @@
 from collections import defaultdict
-from django.utils import timezone
 from django.db import transaction
-from django.db.models import Sum
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-import openpyxl
-import pandas as pd
-from django.utils.dateparse import parse_date
 
 from core.permissions import IsAdminOrReadOnlyForStaff
-from core.services.dashboard_overview import full_dashboard_service
-from core.services.purchase_upload import upload_purchase_excel
-from core.services.sale_upload import upload_sales_excel
-from core.services.utils import extract_item_no
+from core.services.dashoard.chart_service import get_dashboard_charts
+from core.services.dashoard.credit_service import get_credit_summary
+from core.services.dashoard.dashboard_followup import get_followups
+from core.services.dashoard.dashboard_low_stock import get_low_stock
+from core.services.dashoard.dashboard_order import get_orders
+from core.services.dashoard.dashboard_staff_salary import get_staff_salaries
+from core.services.uploads.order_upload import upload_order_excel
+from core.services.uploads.purchase_upload import upload_purchase_excel
+from core.services.uploads.sale_upload import upload_sales_excel
+from core.services.uploads.stock_upload import upload_stock_excel
+
 
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock,
@@ -29,7 +31,6 @@ from .models import (
 
 from .serializers import (
     ExpenseSerializer,
-    OrderExcelRowSerializer,
     SalaryTrackerSerializer,
     SalaryTransactionSerializer,
     SaleReadSerializer,
@@ -46,20 +47,6 @@ from .serializers import (
     UserSerializer
 )
 
-# ===================== USER =====================
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
-
-# ===================== SUPPLIER =====================
-class SupplierViewSet(viewsets.ModelViewSet):
-    queryset = Supplier.objects.all().order_by('name')
-    serializer_class = SupplierSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'contact', 'email']
-    ordering_fields = ['name']
 
 # ===================== CATEGORY =====================
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -70,20 +57,6 @@ class CategoryViewSet(viewsets.ModelViewSet):
     search_fields = ['name']
     ordering_fields = ['name']
 
-# ===================== STOCK =====================
-class StockViewSet(viewsets.ModelViewSet):
-    queryset = Stock.objects.all().order_by('name')
-    serializer_class = StockSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'model', 'category__name']
-    ordering_fields = ['name', 'stock', 'purchase_price', 'sale_price']
-
-    @transaction.atomic
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.delete()
-        return Response({"detail": "Stock item deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 # ===================== PURCHASE =====================
 class PurchaseViewSet(viewsets.ModelViewSet):
@@ -160,14 +133,6 @@ class SaleViewSet(viewsets.ModelViewSet):
             read_serializer = SaleReadSerializer(sale)
         return Response(read_serializer.data)
 
-
-# ===================== FOLLOW-UP DASHBOARD =====================
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def full_dashboard(request):
-    period = request.query_params.get('period', 'monthly')
-    data = full_dashboard_service(period)
-    return Response(data)
 
 # ===================== STAFF =====================
 class StaffViewSet(viewsets.ModelViewSet):
@@ -291,12 +256,82 @@ class SaleViewSet(viewsets.ModelViewSet):
         return Response(read_serializer.data)
 
 
-# ===================== DASHBOARD =====================
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def full_dashboard(request):
-    period = request.query_params.get('period', 'monthly')
-    data = full_dashboard_service(period)
+# =================================================
+# 📊 CHART + CREDIT API
+# =================================================
+@api_view(["GET"])
+def dashboard_charts_api(request):
+    period = request.GET.get("period", "monthly")
+    return Response(get_dashboard_charts(period))
+
+@api_view(["GET"])
+def dashboard_credit_api(request):
+    period = request.GET.get("period", "monthly")
+    page = int(request.GET.get("page", 1))
+    page_size = int(request.GET.get("page_size", 5))
+
+    data = get_credit_summary(
+        period=period,
+        page=page,
+        page_size=page_size,
+    )
+
+    return Response(data)
+
+# =================================================
+# 📋 TABLE DATA API
+# =================================================
+@api_view(["GET"])
+def followups_api(request):
+    page = int(request.GET.get("page", 1))
+    page_size = int(request.GET.get("page_size", 5))
+    days = int(request.GET.get("days", 10))
+
+    data = get_followups(
+        days=days,
+        page=page,
+        page_size=page_size,
+    )
+
+    return Response(data)
+
+@api_view(["GET"])
+def low_stock_api(request):
+    page = int(request.GET.get("page", 1))
+    page_size = int(request.GET.get("page_size", 5))
+    threshold = int(request.GET.get("threshold", 5))
+
+    data = get_low_stock(
+        threshold=threshold,
+        page=page,
+        page_size=page_size,
+    )
+
+    return Response(data)
+
+@api_view(["GET"])
+def orders_api(request):
+    page = int(request.GET.get("page", 1))
+    page_size = int(request.GET.get("page_size", 5))
+
+    data = get_orders(
+        page=page,
+        page_size=page_size,
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+def staff_salary_api(request):
+    page = int(request.GET.get("page", 1))
+    page_size = int(request.GET.get("page_size", 5))
+
+    data = get_staff_salaries(
+        page=page,
+        page_size=page_size,
+    )
+
     return Response(data)
 
 # ===================== STAFF =====================
@@ -341,132 +376,6 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated]
 
-# ===================== EXCEL HELPERS =====================
-def parse_excel_date(value):
-    if pd.isna(value):
-        return None
-    if isinstance(value, str):
-        return parse_date(value)
-    return pd.to_datetime(value).date()
-
-# ===================== STOCK EXCEL UPLOAD =====================
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def stock_excel_upload(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"error": "No file uploaded"}, status=400)
-
-    try:
-        df = pd.read_excel(file)
-    except Exception as e:
-        return Response({"error": f"Invalid Excel file: {str(e)}"}, status=400)
-
-    required_columns = ['item_no', 'name', 'category', 'model', 'purchase_price', 'sale_price', 'stock']
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        return Response({"error": f"Missing columns: {', '.join(missing_cols)}"}, status=400)
-
-    created, updated, errors = [], [], []
-
-    for idx, row in df.iterrows():
-        try:
-            with transaction.atomic():
-                category, _ = Category.objects.get_or_create(name=str(row['category']).strip())
-                stock_defaults = {
-                    'name': str(row['name']).strip(),
-                    'category': category,
-                    'model': str(row['model']).strip(),
-                    'purchase_price': float(row['purchase_price']),
-                    'sale_price': float(row['sale_price']),
-                    'stock': int(row['stock'])
-                }
-                stock, created_flag = Stock.objects.update_or_create(
-                    item_no=str(row['item_no']).strip(),
-                    defaults=stock_defaults
-                )
-                (created if created_flag else updated).append(stock.item_no)
-        except Exception as e:
-            errors.append({"row": idx + 2, "error": str(e)})
-
-    return Response({"created": created, "updated": updated, "errors": errors})
-
-# ===================== ORDER EXCEL UPLOAD =====================
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def order_excel_upload(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"detail": "Excel file is required"}, status=400)
-
-    wb = openpyxl.load_workbook(file)
-    sheet = wb.active
-    grouped_rows, row_errors = defaultdict(list), []
-
-    for row_no, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-        data = {
-            "order_ref": row[0],
-            "customer_name": row[1],
-            "contact_no": row[2],
-            "vehicle_model": row[3],
-            "order_date": row[4],
-            "advance": row[5] or 0,
-            "item_no": row[6],
-            "quantity": row[7],
-            "rate": row[8],
-        }
-        serializer = OrderExcelRowSerializer(data=data)
-        if serializer.is_valid():
-            grouped_rows[serializer.validated_data["order_ref"]].append(serializer.validated_data)
-        else:
-            row_errors.append({"row": row_no, "errors": serializer.errors})
-
-    created_orders, order_errors = [], []
-
-    for order_ref, rows in grouped_rows.items():
-        try:
-            with transaction.atomic():
-                first = rows[0]
-                order = Order.objects.create(
-                    customer_name=first["customer_name"].strip(),
-                    contact_no=first["contact_no"].strip(),
-                    vehicle_model=first["vehicle_model"].strip(),
-                    order_date=first["order_date"],
-                    advance=float(first["advance"]),
-                )
-                total = 0
-                for r in rows:
-                    stock = Stock.objects.get(item_no=extract_item_no(r["item_no"]).upper())
-                    qty, rate = int(r["quantity"]), float(r["rate"])
-                    OrderItem.objects.create(order=order, item=stock, quantity=qty, rate=rate)
-                    total += qty * rate
-                order.total_amount = total
-                order.remaining_amount = total - order.advance
-                order.save()
-                created_orders.append(order.id)
-        except Exception as e:
-            order_errors.append({"order_ref": order_ref, "error": str(e)})
-
-    return Response({"created_orders": created_orders, "row_errors": row_errors, "order_errors": order_errors})
-
-# ===================== PURCHASE/SALES EXCEL =====================
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def upload_purchase_excel_api(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_purchase_excel(file, request.user))
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def upload_sales_excel_api(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_sales_excel(file))
-
-
 # ===================== ORDER =====================
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
@@ -490,127 +399,38 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     serializer_class = ExpenseSerializer
     permission_classes = [IsAuthenticated]
 
-# ===================== EXCEL HELPERS =====================
-def parse_excel_date(value):
-    if pd.isna(value):
-        return None
-    if isinstance(value, str):
-        return parse_date(value)
-    return pd.to_datetime(value).date()
 
-# ===================== STOCK EXCEL UPLOAD =====================
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def stock_excel_upload(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"error": "No file uploaded"}, status=400)
-
-    try:
-        df = pd.read_excel(file)
-    except Exception as e:
-        return Response({"error": f"Invalid Excel file: {str(e)}"}, status=400)
-
-    required_columns = ['item_no', 'name', 'category', 'model', 'purchase_price', 'sale_price', 'stock']
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        return Response({"error": f"Missing columns: {', '.join(missing_cols)}"}, status=400)
-
-    created, updated, errors = [], [], []
-
-    for idx, row in df.iterrows():
-        try:
-            with transaction.atomic():
-                category, _ = Category.objects.get_or_create(name=str(row['category']).strip())
-                stock_defaults = {
-                    'name': str(row['name']).strip(),
-                    'category': category,
-                    'model': str(row['model']).strip(),
-                    'purchase_price': float(row['purchase_price']),
-                    'sale_price': float(row['sale_price']),
-                    'stock': int(row['stock'])
-                }
-                stock, created_flag = Stock.objects.update_or_create(
-                    item_no=str(row['item_no']).strip(),
-                    defaults=stock_defaults
-                )
-                (created if created_flag else updated).append(stock.item_no)
-        except Exception as e:
-            errors.append({"row": idx + 2, "error": str(e)})
-
-    return Response({"created": created, "updated": updated, "errors": errors})
-
-# ===================== ORDER EXCEL UPLOAD =====================
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def order_excel_upload(request):
-    file = request.FILES.get('file')
-    if not file:
-        return Response({"detail": "Excel file is required"}, status=400)
-
-    wb = openpyxl.load_workbook(file)
-    sheet = wb.active
-    grouped_rows, row_errors = defaultdict(list), []
-
-    for row_no, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-        data = {
-            "order_ref": row[0],
-            "customer_name": row[1],
-            "contact_no": row[2],
-            "vehicle_model": row[3],
-            "order_date": row[4],
-            "advance": row[5] or 0,
-            "item_no": row[6],
-            "quantity": row[7],
-            "rate": row[8],
-        }
-        serializer = OrderExcelRowSerializer(data=data)
-        if serializer.is_valid():
-            grouped_rows[serializer.validated_data["order_ref"]].append(serializer.validated_data)
-        else:
-            row_errors.append({"row": row_no, "errors": serializer.errors})
-
-    created_orders, order_errors = [], []
-
-    for order_ref, rows in grouped_rows.items():
-        try:
-            with transaction.atomic():
-                first = rows[0]
-                order = Order.objects.create(
-                    customer_name=first["customer_name"].strip(),
-                    contact_no=first["contact_no"].strip(),
-                    vehicle_model=first["vehicle_model"].strip(),
-                    order_date=first["order_date"],
-                    advance=float(first["advance"]),
-                )
-                total = 0
-                for r in rows:
-                    stock = Stock.objects.get(item_no=extract_item_no(r["item_no"]).upper())
-                    qty, rate = int(r["quantity"]), float(r["rate"])
-                    OrderItem.objects.create(order=order, item=stock, quantity=qty, rate=rate)
-                    total += qty * rate
-                order.total_amount = total
-                order.remaining_amount = total - order.advance
-                order.save()
-                created_orders.append(order.id)
-        except Exception as e:
-            order_errors.append({"order_ref": order_ref, "error": str(e)})
-
-    return Response({"created_orders": created_orders, "row_errors": row_errors, "order_errors": order_errors})
-
-# ===================== PURCHASE/SALES EXCEL =====================
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def upload_purchase_excel_api(request):
-    file = request.FILES.get('file')
+def purchase_excel_upload_api(request):
+    file = request.FILES.get("file")
     if not file:
         return Response({"error": "Excel file required"}, status=400)
     return Response(upload_purchase_excel(file, request.user))
 
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def upload_sales_excel_api(request):
-    file = request.FILES.get('file')
+def sale_excel_upload_api(request):
+    file = request.FILES.get("file")
     if not file:
         return Response({"error": "Excel file required"}, status=400)
     return Response(upload_sales_excel(file))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def stock_excel_upload_api(request):
+    file = request.FILES.get("file")
+    if not file:
+        return Response({"error": "Excel file required"}, status=400)
+    return Response(upload_stock_excel(file))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def order_excel_upload_api(request):
+    file = request.FILES.get("file")
+    if not file:
+        return Response({"error": "Excel file required"}, status=400)
+    return Response(upload_order_excel(file))

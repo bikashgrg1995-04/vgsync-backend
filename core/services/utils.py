@@ -2,7 +2,7 @@
 import re
 
 from django.utils import timezone
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 
 import math
@@ -58,7 +58,30 @@ def recalc_sale_totals(sale):
     sale.save(update_fields=['total_amount', 'remaining_amount'])
 
 
-#credit day count
-def credit_days(from_date):
-    today = timezone.now().date()
-    return (today - from_date.date()).days
+def get_credit_days(dt):
+    if not dt:
+        return 0
+    if hasattr(dt, "date"):
+        dt = dt.date()
+    return (timezone.now().date() - dt).days
+
+def safe_local_date(dt=None):
+    """
+    Safely return a local DATE from:
+    - None
+    - datetime.date
+    - datetime.datetime
+    """
+
+    if dt is None:
+        return timezone.localdate()
+
+    # If datetime → convert to local date
+    if isinstance(dt, datetime):
+        return timezone.localdate(dt)
+
+    # If already a date → return as-is
+    if isinstance(dt, date):
+        return dt
+
+    raise ValueError(f"Unsupported type for date: {type(dt)}")
