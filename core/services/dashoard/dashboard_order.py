@@ -1,24 +1,25 @@
 # =================================================
-# 🧾 ORDERS (Paginated)
+# 🧾 ORDERS (Paginated with status)
 # =================================================
 from django.core.paginator import Paginator
 from core.models import Order
 
+def get_orders(page=1, page_size=5, exclude_completed=True):
+    qs = Order.objects.all().order_by("-order_date")
 
-def get_orders(page=1, page_size=5):
-    qs = (
-        Order.objects.all()
-        .order_by("-order_date")
-        .values(
-            "id",
-            "customer_name",
-            "contact_no",
-            "vehicle_model",
-            "order_date",
-            "total_amount",
-            "advance",
-            "remaining_amount",
-        )
+    if exclude_completed:
+        qs = qs.exclude(status=Order.STATUS_COMPLETED)  # 🔥 hide completed orders
+
+    qs = qs.values(
+        "id",
+        "customer_name",
+        "contact_no",
+        "vehicle_model",
+        "order_date",
+        "total_amount",
+        "advance",
+        "remaining_amount",
+        "status",  # 🔥 include status
     )
 
     paginator = Paginator(qs, page_size)
@@ -35,6 +36,7 @@ def get_orders(page=1, page_size=5):
             "total_amount": float(order["total_amount"] or 0),
             "advance": float(order["advance"] or 0),
             "remaining_amount": float(order["remaining_amount"] or 0),
+            "status": order["status"],  # 🔥 send status
         })
 
     return {

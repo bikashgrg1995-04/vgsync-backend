@@ -393,16 +393,18 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True)
-    total_amount = serializers.SerializerMethodField()
-    remaining_amount = serializers.SerializerMethodField()
+    items = OrderItemSerializer(many=True, required=False)
+
+    total_amount = serializers.SerializerMethodField(read_only=True)
+    remaining_amount = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
         fields = [
             'id', 'customer_name', 'contact_no',
             'vehicle_model', 'order_date',
-            'items', 'total_amount', 'advance', 'remaining_amount'
+            'items', 'total_amount',
+            'advance', 'remaining_amount', 'status',
         ]
 
     def get_total_amount(self, obj):
@@ -421,7 +423,12 @@ class OrderSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        status = validated_data.get('status')
+        if status and status not in dict(Order.STATUS_CHOICES):
+            raise serializers.ValidationError({"status": "Invalid status"})
+
         items_data = validated_data.pop('items', None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -429,7 +436,7 @@ class OrderSerializer(serializers.ModelSerializer):
         if items_data is not None:
             existing_items = {item.id: item for item in instance.items.all()}
             for item_data in items_data:
-                item_id = item_data.get('id', None)
+                item_id = item_data.get('id')
                 if item_id and item_id in existing_items:
                     oi = existing_items.pop(item_id)
                     oi.item = item_data.get('item', oi.item)

@@ -185,7 +185,6 @@ class FollowUpDashboardAdmin(admin.ModelAdmin):
 
 
 # ================= ORDER =================
-
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
@@ -194,11 +193,28 @@ class OrderAdmin(admin.ModelAdmin):
         'order_date',
         'total_amount',
         'advance',
-        'remaining_amount'
+        'remaining_amount',
+        'status',              # ✅ ADD
     )
+
+    list_filter = (
+        'status',              # ✅ ADD
+        'order_date',
+    )
+
+    list_editable = (
+        'status',              # 🔥 Quick change from list view
+    )
+
     inlines = [OrderItemInline]
-    readonly_fields = ('total_amount', 'remaining_amount')
+
+    readonly_fields = (
+        'total_amount',
+        'remaining_amount',
+    )
+
     date_hierarchy = 'order_date'
+
 
 
 # ================= STAFF =================

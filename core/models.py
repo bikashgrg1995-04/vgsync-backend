@@ -411,6 +411,15 @@ class SaleItem(models.Model):
 
 # ------------------ Order ------------------
 class Order(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_RECEIVED = 'received'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RECEIVED, 'Received'),
+        (STATUS_COMPLETED, 'Completed'),
+    )
+
     customer_name = models.CharField(max_length=100)
     contact_no = models.CharField(max_length=50, blank=True, null=True)
     vehicle_model = models.CharField(max_length=50, blank=True, null=True)
@@ -419,6 +428,11 @@ class Order(models.Model):
 
     total_amount = models.FloatField(default=0)
     remaining_amount = models.FloatField(default=0)
+    status = models.CharField(               
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING
+    )
 
     def update_totals(self):
         self.total_amount = sum(item.total_price() for item in self.items.all())
