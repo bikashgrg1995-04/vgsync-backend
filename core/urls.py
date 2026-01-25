@@ -31,6 +31,10 @@ from .views import (
     sale_excel_upload_api,
     staff_salary_api,
     stock_excel_upload_api,
+
+    #Bike Sale
+    BikeSaleViewSet, EmiTrackerViewSet, EmiTrackerUpdateAPIView
+
 )
 
 
@@ -68,6 +72,12 @@ router.register(r'followups', FollowUpDashboardViewSet, basename='followup')
 router.register(r'salarytracker', SalaryTrackerViewSet, basename='salarytracker')
 router.register(r'salarytransactions', SalaryTransactionViewSet, basename='salarytransaction')
 router.register(r'expenses', ExpenseViewSet, basename='expense')
+
+# ---------------- Bike Sale ----------------
+router.register(r'bike-sales', BikeSaleViewSet, basename='bike-sale')
+
+# ---------------- Bike sale tracker ----------------
+router.register(r'emi-tracker', EmiTrackerViewSet, basename='emi-tracker')
 
 # =================================================
 # 🌐 URL PATTERNS
@@ -123,4 +133,7 @@ urlpatterns = [
     path("upload/sales-excel/", sale_excel_upload_api),
     path("upload/stock-excel/", stock_excel_upload_api),
     path("upload/order-excel/", order_excel_upload_api),
+
+    #installment pay garda emi update hune endpoint
+    path('emi/<int:id>/update/', EmiTrackerUpdateAPIView.as_view(), name='emi-update'),
 ]

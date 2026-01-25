@@ -1,13 +1,14 @@
 from rest_framework import serializers
-from django.db import transaction
+from django.db import transaction, models
 from datetime import date, timedelta
+from django.db.models import Sum
 
-from core.services.utils import extract_item_no, recalc_sale_totals
+from core.services.utils import extract_item_no, recalc_sale_totals, generate_emi_schedule,  update_emi_status, get_bike_sale_status
 
 
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
-    Supplier, Staff, Category, Order, OrderItem, User
+    Supplier, Staff, Category, Order, OrderItem, User, BikeSale, EmiTracker
 )
 
 
@@ -470,3 +471,67 @@ class OrderExcelRowSerializer(serializers.Serializer):
             return stock
         except Stock.DoesNotExist:
             raise serializers.ValidationError(f"Stock with item_no '{item_no}' does not exist")
+
+
+# ----------------- BikeSale Serializer -----------------
+
+class BikeSaleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BikeSale
+        fields = '__all__'
+
+    def create(self, validated_data):
+        # 1. Create the BikeSale object
+        sale = super().create(validated_data)
+        
+        # 2. Auto-generate EMI schedule if required
+        if sale.is_emi and sale.emi_tenure:
+            generate_emi_schedule(sale)
+        
+        return sale
+
+    def update(self, instance, validated_data):
+        # 1. Update the BikeSale object
+        sale = super().update(instance, validated_data)
+        
+        # 2. Optionally regenerate EMI schedule if emi_tenure or remaining_amount changed
+        if sale.is_emi and sale.emi_tenure:
+            generate_emi_schedule(sale)
+        
+        return sale
+
+
+# ----------------- EMI Tracker Serializer -----------------
+class EmiTrackerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmiTracker
+        fields = '__all__'
+
+
+
+class EmiTrackerUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmiTracker
+        fields = ('paid_amount', 'payment_date', 'status', 'payment_method')  # ✅ added payment_method
+
+    def update(self, instance, validated_data):
+        # Update EMI fields
+        instance.paid_amount = validated_data.get('paid_amount', instance.paid_amount)
+        instance.payment_date = validated_data.get('payment_date', instance.payment_date)
+        instance.status = validated_data.get('status', instance.status)
+        instance.payment_method = validated_data.get('payment_method', instance.payment_method)  # ✅
+
+        instance.save()
+
+        # Update EMI status properly
+        update_emi_status(instance)
+
+        # Update parent BikeSale totals
+        sale = instance.sale
+        total_paid = sale.emi_details.aggregate(total=Sum('paid_amount'))['total'] or 0
+        sale.paid_amount = total_paid
+        sale.remaining_amount = max(sale.net_total - total_paid, 0)
+        sale.status = get_bike_sale_status(sale.net_total, sale.paid_amount)
+        sale.save(update_fields=['paid_amount', 'remaining_amount', 'status'])
+
+        return instance

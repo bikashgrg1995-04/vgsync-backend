@@ -6,8 +6,10 @@ from .models import (
     Sale, SaleItem,
     FollowUpDashboard,
     Order, OrderItem,
-    Staff, User
+    Staff, User, BikeSale, EmiTracker
 )
+from core.services.utils import generate_emi_schedule
+
 
 # ================= INLINES =================
 
@@ -35,6 +37,15 @@ class SalaryTransactionInline(admin.TabularInline):
     def paid_amount_snapshot(self, obj):
         return obj.amount
     paid_amount_snapshot.short_description = "Transaction Amount"
+
+# ---------------------------
+# EMI Tracker Inline
+# ---------------------------
+class EmiTrackerInline(admin.TabularInline):
+    model = EmiTracker
+    extra = 0
+    readonly_fields = ('status',)
+    fields = ('installment_no', 'due_date', 'amount_due', 'paid_amount', 'payment_date', 'payment_method', 'status')
 
 
 # ================= SUPPLIER =================
@@ -305,3 +316,23 @@ class SalaryTrackerAdmin(admin.ModelAdmin):
     def remaining_amount_display(self, obj):
         return obj.total_salary - self.paid_amount_display(obj)
     remaining_amount_display.short_description = "Remaining Amount"
+
+    
+@admin.register(BikeSale)
+class BikeSaleAdmin(admin.ModelAdmin):
+    list_display = ('customer_name', 'vehicle_type', 'vehicle_model', 'sale_type',
+                    'total_amount', 'discount', 'net_total', 'paid_amount',
+                    'remaining_amount', 'emi_tenure', 'emi_amount', 'status', 'sale_date')
+    readonly_fields = ('net_total', 'status', 'remaining_amount', 'emi_amount')
+    inlines = [EmiTrackerInline]
+    search_fields = ('customer_name', 'registration_no', 'vehicle_model')
+    list_filter = ('sale_type', 'status', 'vehicle_type', 'sale_date')
+
+    def save_model(self, request, obj, form, change):
+        # 1️⃣ Save the BikeSale first
+        super().save_model(request, obj, form, change)
+
+        # 2️⃣ Generate EMI schedule if sale_type is EMI or downpayment
+        if obj.is_emi and obj.emi_tenure:
+            generate_emi_schedule(obj)
+

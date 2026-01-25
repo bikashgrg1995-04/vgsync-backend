@@ -1,6 +1,7 @@
 from collections import defaultdict
 from django.db import transaction
-from rest_framework import viewsets, filters, status
+from django.db.models import Sum
+from rest_framework import viewsets, filters, status, generics
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -26,7 +27,7 @@ from .models import (
     Sale, SaleItem,
     FollowUpDashboard,
     Order, OrderItem,
-    Staff, User
+    Staff, User, BikeSale, EmiTracker
 )
 
 from .serializers import (
@@ -44,7 +45,8 @@ from .serializers import (
     FollowUpDashboardSerializer,
     StaffSerializer,
     OrderSerializer,
-    UserSerializer
+    UserSerializer, BikeSaleSerializer, EmiTrackerSerializer, EmiTrackerUpdateSerializer
+
 )
 
 
@@ -434,3 +436,43 @@ def order_excel_upload_api(request):
     if not file:
         return Response({"error": "Excel file required"}, status=400)
     return Response(upload_order_excel(file))
+
+
+# ----------------- BikeSale CRUD -----------------
+class BikeSaleViewSet(viewsets.ModelViewSet):
+    queryset = BikeSale.objects.all().order_by('-sale_date')
+    serializer_class = BikeSaleSerializer
+
+    def create(self, request, *args, **kwargs):
+        """
+        Automatically reject EMI tracker creation if sale_type is not EMI
+        """
+        sale_type = request.data.get('sale_type')
+        response = super().create(request, *args, **kwargs)
+        if sale_type == 'emi':
+            # Optionally: create EMI schedule automatically here
+            pass
+        return response
+
+# ----------------- EMI Tracker CRUD -----------------
+class EmiTrackerViewSet(viewsets.ModelViewSet):
+    queryset = EmiTracker.objects.all().order_by('installment_no')
+    serializer_class = EmiTrackerSerializer
+
+    def create(self, request, *args, **kwargs):
+        # Ensure only EMI sales can have EMI trackers
+        sale_id = request.data.get('sale')
+        sale = BikeSale.objects.get(id=sale_id)
+        if sale.sale_type != 'emi':
+            return Response(
+                {"error": "EMI tracker can only be created for EMI sales."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().create(request, *args, **kwargs)
+
+
+
+class EmiTrackerUpdateAPIView(generics.UpdateAPIView):
+    queryset = EmiTracker.objects.all()
+    serializer_class = EmiTrackerUpdateSerializer
+    lookup_field = 'id'  # frontend sends the EMI id

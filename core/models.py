@@ -502,4 +502,86 @@ class FollowUpDashboard(models.Model):
 
     class Meta:
         ordering = ['follow_up_date']
+        
+class BikeSale(models.Model):
+    SALE_TYPES = (
+        ('full', 'Full Payment'),
+        ('downpayment', 'Downpayment'),
+        ('emi', 'EMI'),
+    )
 
+    PAYMENT_METHODS = (
+        ('cash', 'Cash'),
+        ('cheque', 'Cheque'),
+        ('online', 'Online'),
+    )
+
+    VEHICLE_TYPES = (
+        ('bike', 'Bike'),
+        ('scooty', 'Scooty'),
+    )
+
+    # Customer & Vehicle Info
+    customer_name = models.CharField(max_length=200)
+    contact_no = models.CharField(max_length=15)
+    address = models.TextField(blank=True, null=True)
+    vehicle_type = models.CharField(max_length=20, choices=VEHICLE_TYPES)
+    vehicle_model = models.CharField(max_length=100)
+    registration_no = models.CharField(max_length=50, unique=True)
+    chassis_no = models.CharField(max_length=50, unique=True)
+    engine_no = models.CharField(max_length=50, unique=True)
+    color = models.CharField(max_length=50, blank=True, null=True)
+    km_driven = models.FloatField(default=0)
+
+    # Sale Info
+    sale_type = models.CharField(max_length=20, choices=SALE_TYPES)
+    sale_date = models.DateField(default=timezone.now)
+
+    # Payment Info (Frontend calculates these)
+    total_amount = models.FloatField()
+    discount = models.FloatField(default=0)
+    net_total = models.FloatField()
+    paid_amount = models.FloatField(default=0)
+    remaining_amount = models.FloatField(default=0)
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, blank=True, null=True)
+    status = models.CharField(max_length=50)  # Paid, Partially Paid, Pending
+
+    # EMI Info
+    emi_tenure = models.PositiveIntegerField(null=True, blank=True)
+    emi_amount = models.FloatField(null=True, blank=True)
+
+    remarks = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.customer_name} - {self.vehicle_model} ({self.sale_type})"
+
+    @property
+    def is_emi(self):
+        return self.sale_type in ['emi', 'downpayment']
+
+
+class EmiTracker(models.Model):
+    sale = models.ForeignKey(BikeSale, on_delete=models.CASCADE, related_name="emi_details")
+    installment_no = models.PositiveIntegerField()
+    due_date = models.DateField()
+    amount_due = models.FloatField()
+    paid_amount = models.FloatField(default=0)
+    payment_date = models.DateField(blank=True, null=True)
+    payment_method = models.CharField(
+        max_length=20,
+        choices=BikeSale.PAYMENT_METHODS,
+        blank=True,
+        null=True
+    )
+    status = models.CharField(max_length=20, default="Pending")  # Pending, Paid, Overdue
+
+    class Meta:
+        unique_together = ('sale', 'installment_no')
+        ordering = ['installment_no']
+
+    def __str__(self):
+        return f"EMI {self.installment_no} - {self.sale.customer_name}"
+
+    def update_status(self):
+        self.status = "Paid" if self.paid_amount >= self.amount_due else "Pending"
+        self.save(update_fields=['status'])
