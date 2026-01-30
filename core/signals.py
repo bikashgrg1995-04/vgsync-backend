@@ -1,7 +1,7 @@
 # core/signals.py
 from datetime import timedelta
 from django.utils import timezone
-from core.services.utils import safe_local_date
+from core.services.utils import safe_local_date, safe_sale_date
 from django.db.models.signals import (
     post_save, pre_save, pre_delete, post_delete
 )
@@ -12,7 +12,7 @@ from django.db import transaction
 from .models import (
     Expense, Order, Purchase, SalaryTracker, SalaryTransaction,
     Sale, SaleItem, PurchaseItem, FollowUpDashboard,
-    OrderItem, Stock
+    OrderItem, Stock, BikeSale, BikeSaleFollowUp
 )
 
 # =====================================================
@@ -301,7 +301,6 @@ def handle_salary_transaction_save(sender, instance, created, **kwargs):
 
         tracker.save(update_fields=['paid_amount', 'status'])
 
-
 @receiver(pre_delete, sender=SalaryTransaction)
 @transaction.atomic
 def handle_salary_transaction_delete(sender, instance, **kwargs):
@@ -324,3 +323,29 @@ def handle_salary_transaction_delete(sender, instance, **kwargs):
     tracker.paid_amount = total_paid
     tracker.status = 'paid' if total_paid > 0 else 'pending'
     tracker.save(update_fields=['paid_amount', 'status'])
+
+
+@receiver(post_save, sender=BikeSale)
+def bike_sale_followup(sender, instance, created, **kwargs):
+    # ✅ Only on create
+    if not created:
+        return
+
+    base_date = instance.sale_date or timezone.now()
+
+    BikeSaleFollowUp.objects.create(
+        bike_sale=instance,
+        customer_name=instance.customer_name or "Unknown",
+        contact_no=instance.contact_no,
+        vehicle=instance.vehicle_model or instance.bike_registration_no,
+        delivery_date=base_date,
+        post_service_feedback_date=base_date + timedelta(days=POST_FEEDBACK_DAYS),
+        follow_up_date=base_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS),
+        remarks="Auto-created bike sale follow-up",
+        status="pending"
+    )
+
+
+@receiver(pre_delete, sender=BikeSale)
+def delete_bike_sale_followup(sender, instance, **kwargs):
+    BikeSaleFollowUp.objects.filter(bike_sale=instance).delete()

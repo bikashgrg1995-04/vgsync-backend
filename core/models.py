@@ -180,6 +180,8 @@ class Supplier(models.Model):
 
     def __str__(self):
         return self.name
+
+
 class Stock(models.Model):
     item_no = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=100)
@@ -192,6 +194,7 @@ class Stock(models.Model):
 
     purchase_price = models.FloatField(default=0)
     sale_price = models.FloatField(default=0)
+    is_migrated = models.BooleanField(default=False)
 
     # ✅ NEW FIELD
     block = models.CharField(
@@ -502,7 +505,8 @@ class FollowUpDashboard(models.Model):
 
     class Meta:
         ordering = ['follow_up_date']
-        
+
+
 class BikeSale(models.Model):
     SALE_TYPES = (
         ('full', 'Full Payment'),
@@ -542,6 +546,7 @@ class BikeSale(models.Model):
     discount = models.FloatField(default=0)
     net_total = models.FloatField()
     paid_amount = models.FloatField(default=0)
+    initial_paid_amount = models.FloatField(default=0)
     remaining_amount = models.FloatField(default=0)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, blank=True, null=True)
     status = models.CharField(max_length=50)  # Paid, Partially Paid, Pending
@@ -558,7 +563,6 @@ class BikeSale(models.Model):
     @property
     def is_emi(self):
         return self.sale_type in ['emi', 'downpayment']
-
 
 class EmiTracker(models.Model):
     sale = models.ForeignKey(BikeSale, on_delete=models.CASCADE, related_name="emi_details")
@@ -585,3 +589,23 @@ class EmiTracker(models.Model):
     def update_status(self):
         self.status = "Paid" if self.paid_amount >= self.amount_due else "Pending"
         self.save(update_fields=['status'])
+
+        # Update parent BikeSale totals
+        sale = self.sale
+        total_emi_paid = sale.emi_details.aggregate(total=Sum('paid_amount'))['total'] or 0
+        sale.paid_amount = (sale.initial_paid_amount or 0) + total_emi_paid
+        sale.remaining_amount = max(sale.net_total - sale.paid_amount, 0)
+        sale.status = "Paid" if sale.remaining_amount == 0 else "Partially Paid" if sale.paid_amount > 0 else "Pending"
+        sale.save(update_fields=['paid_amount', 'remaining_amount', 'status'])
+
+
+class BikeSaleFollowUp(models.Model):
+    bike_sale = models.ForeignKey(BikeSale, on_delete=models.CASCADE)
+    customer_name = models.CharField(max_length=255)
+    contact_no = models.CharField(max_length=50)
+    vehicle = models.CharField(max_length=255)
+    delivery_date = models.DateField()
+    post_service_feedback_date = models.DateField()
+    follow_up_date = models.DateField()
+    remarks = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=50, default="pending")

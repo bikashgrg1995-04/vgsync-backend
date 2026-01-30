@@ -6,7 +6,7 @@ from .models import (
     Sale, SaleItem,
     FollowUpDashboard,
     Order, OrderItem,
-    Staff, User, BikeSale, EmiTracker
+    Staff, User, BikeSale, EmiTracker, BikeSaleFollowUp
 )
 from core.services.utils import generate_emi_schedule
 
@@ -329,10 +329,31 @@ class BikeSaleAdmin(admin.ModelAdmin):
     list_filter = ('sale_type', 'status', 'vehicle_type', 'sale_date')
 
     def save_model(self, request, obj, form, change):
-        # 1️⃣ Save the BikeSale first
+        # If new object or downpayment, store initial_paid_amount
+        if not change or (obj.sale_type == 'downpayment' and obj.initial_paid_amount == 0):
+            obj.initial_paid_amount = obj.paid_amount
+
         super().save_model(request, obj, form, change)
 
-        # 2️⃣ Generate EMI schedule if sale_type is EMI or downpayment
+        # Generate EMI schedule if sale_type is EMI or downpayment
         if obj.is_emi and obj.emi_tenure:
             generate_emi_schedule(obj)
 
+        # Recalculate totals after any changes
+        total_emi_paid = obj.emi_details.aggregate(total=Sum('paid_amount'))['total'] or 0
+        obj.paid_amount = obj.initial_paid_amount + total_emi_paid
+        obj.remaining_amount = max(obj.net_total - obj.paid_amount, 0)
+        obj.status = "Paid" if obj.remaining_amount == 0 else "Partially Paid" if obj.paid_amount > 0 else "Pending"
+        obj.save(update_fields=['paid_amount', 'remaining_amount', 'status'])
+
+
+@admin.register(BikeSaleFollowUp)
+class BikeSaleFollowUpAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'bike_sale', 'customer_name', 'contact_no', 'vehicle',
+        'delivery_date', 'post_service_feedback_date', 'follow_up_date',
+        'status'
+    )
+    list_filter = ('status', 'follow_up_date')
+    search_fields = ('customer_name', 'contact_no', 'vehicle', 'bike_sale__vehicle_model')
+    readonly_fields = ('status',)

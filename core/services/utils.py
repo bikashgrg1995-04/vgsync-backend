@@ -3,9 +3,11 @@ import re
 
 from django.utils import timezone
 from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
 
 
 import math
+
 import numpy as np
 from core.models import EmiTracker
 
@@ -143,8 +145,8 @@ def update_emi_status(emi):
     today = timezone.localdate()
     if getattr(emi, 'paid_amount', 0) >= getattr(emi, 'amount_due', 0):
         emi.status = "Paid"
-    elif getattr(emi, 'due_date', today) < today:
-        emi.status = "Overdue"
+    elif 0 < getattr(emi, 'paid_amount', 0) < getattr(emi, 'amount_due', 0) and emi.due_date < today:
+        emi.status = "Overdue (Partial)"
     else:
         emi.status = "Pending"
     emi.save(update_fields=['status'])
@@ -152,48 +154,67 @@ def update_emi_status(emi):
 
 def generate_emi_schedule(sale):
     """
-    Create EMI schedule for a BikeSale if sale_type is 'emi' or 'downpayment'
-    Frontend must already provide net_total, remaining_amount
+    Create EMI schedule for a BikeSale if sale_type is 'emi' or 'downpayment'.
+    EMI due dates are based on sale_date.
     """
+
     if sale.sale_type not in ['emi', 'downpayment'] or not sale.emi_tenure:
         return
 
     # Delete existing EMIs
     sale.emi_details.all().delete()
 
-    remaining = max(getattr(sale, 'remaining_amount', 0), 0)
+    initial_paid = getattr(sale, 'initial_paid_amount', 0) or 0
+    remaining = max(getattr(sale, 'net_total', 0) - initial_paid, 0)
     tenure = sale.emi_tenure
-    if tenure <= 0:
+
+    if tenure <= 0 or remaining <= 0:
+        sale.emi_amount = 0
+        sale.remaining_amount = remaining
+        sale.save(update_fields=['emi_amount', 'remaining_amount'])
         return
 
-    emi_per_month = remaining / tenure
-    sale.emi_amount = round(emi_per_month, 2)
-    sale.save(update_fields=['emi_amount'])
+    emi_per_month = round(remaining / tenure, 2)
 
-    today = timezone.localdate()
+    sale.emi_amount = emi_per_month
+    sale.remaining_amount = remaining
+    sale.status = get_bike_sale_status(sale.net_total, initial_paid)
+    sale.save(update_fields=['emi_amount', 'remaining_amount', 'status'])
+
+    # 🔑 Use sale_date instead of today
+    sale_date = sale.sale_date
+    if hasattr(sale_date, "date"):
+        sale_date = sale_date.date()
+
+    # Create EMI schedule
     for i in range(1, tenure + 1):
         EmiTracker.objects.create(
             sale=sale,
             installment_no=i,
-            due_date=today + timedelta(days=30 * i),
-            amount_due=round(emi_per_month, 2),
+            due_date=sale_date + relativedelta(months=i),
+            amount_due=emi_per_month,
             paid_amount=0,
             status="Pending"
         )
 
+        
 def update_bike_sale_payment_from_emi(sale):
     """
-    Update total paid, remaining, and status based on EMI payments
+    Update total paid, remaining, and status based on EMI payments + downpayment
     """
-    total_paid = sale.emi_details.aggregate(total=models.Sum('paid_amount'))['total'] or 0
+    # Sum of all EMI paid
+    total_emi_paid = sale.emi_details.aggregate(total=models.Sum('paid_amount'))['total'] or 0
+
+    # Use initial_paid_amount for downpayment
+    initial_paid = getattr(sale, 'initial_paid_amount', 0) or 0
+
+    # Total paid = downpayment + EMI payments
+    total_paid = initial_paid + total_emi_paid
     sale.paid_amount = total_paid
-    sale.remaining_amount = max(sale.net_total - total_paid, 0)
-    
-    if sale.remaining_amount <= 0:
-        sale.status = "Paid"
-    elif total_paid > 0:
-        sale.status = "Partially Paid"
-    else:
-        sale.status = "Pending"
-    
+
+    # Correct remaining calculation
+    sale.remaining_amount = max(getattr(sale, 'net_total', 0) - total_paid, 0)
+
+    # Update status
+    sale.status = get_bike_sale_status(getattr(sale, 'net_total', 0), total_paid)
     sale.save(update_fields=['paid_amount', 'remaining_amount', 'status'])

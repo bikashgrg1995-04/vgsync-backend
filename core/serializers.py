@@ -8,7 +8,7 @@ from core.services.utils import extract_item_no, recalc_sale_totals, generate_em
 
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
-    Supplier, Staff, Category, Order, OrderItem, User, BikeSale, EmiTracker
+    Supplier, Staff, Category, Order, OrderItem, User, BikeSale, EmiTracker, BikeSaleFollowUp
 )
 
 
@@ -508,30 +508,59 @@ class EmiTrackerSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-
 class EmiTrackerUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmiTracker
-        fields = ('paid_amount', 'payment_date', 'status', 'payment_method')  # ✅ added payment_method
+        fields = ('paid_amount', 'payment_date', 'status', 'payment_method')
 
+    @transaction.atomic
     def update(self, instance, validated_data):
-        # Update EMI fields
+        # ---------------- Update EMI Tracker ----------------
         instance.paid_amount = validated_data.get('paid_amount', instance.paid_amount)
         instance.payment_date = validated_data.get('payment_date', instance.payment_date)
         instance.status = validated_data.get('status', instance.status)
-        instance.payment_method = validated_data.get('payment_method', instance.payment_method)  # ✅
-
+        instance.payment_method = validated_data.get('payment_method', instance.payment_method)
         instance.save()
 
         # Update EMI status properly
         update_emi_status(instance)
 
-        # Update parent BikeSale totals
+        # ---------------- Update Parent BikeSale ----------------
         sale = instance.sale
-        total_paid = sale.emi_details.aggregate(total=Sum('paid_amount'))['total'] or 0
+
+        # Sum of all paid EMIs
+        total_emi_paid = sale.emi_details.aggregate(total=Sum('paid_amount'))['total'] or 0
+
+        if sale.sale_type == 'downpayment':
+            # For downpayment sale, total paid = initial downpayment + sum of EMI paid
+            total_paid = (sale.initial_paid_amount or 0) + total_emi_paid
+        else:
+            # For full EMI sale or normal EMI, total paid = sum of paid EMI amounts
+            total_paid = total_emi_paid
+
+
+        # Update sale totals
         sale.paid_amount = total_paid
         sale.remaining_amount = max(sale.net_total - total_paid, 0)
         sale.status = get_bike_sale_status(sale.net_total, sale.paid_amount)
         sale.save(update_fields=['paid_amount', 'remaining_amount', 'status'])
 
         return instance
+
+
+class BikeSaleFollowUpSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BikeSaleFollowUp
+        fields = [
+            'id',
+            'bike_sale',  # ForeignKey to BikeSale
+            'customer_name',
+            'contact_no',
+            'vehicle',
+            'delivery_date',
+            'post_service_feedback_date',
+            'follow_up_date',
+            'remarks',
+            'status',  # pending, partial, paid, terminated, etc.
+        ]
+        read_only_fields = ['id', 'status']
