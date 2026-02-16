@@ -2,7 +2,7 @@ from datetime import timedelta
 from django.db.models import Sum
 from core.models import Sale, BikeSale, EmiTracker, Expense
 from .period_utils import get_start_date
-from core.services.utils import safe_local_date, safe_sale_date
+from core.services.utils import safe_local_date, safe_sale_date, get_bike_sale_total_paid
 
 from dateutil.relativedelta import relativedelta
 
@@ -64,8 +64,10 @@ def get_dashboard_charts(period="monthly"):
         .order_by("sale_date")
 
     bike_qs = BikeSale.objects.filter(sale_date__gte=start_date)\
-        .values("sale_date", "sale_type", "net_total", "initial_paid_amount")\
+        .values("id", "sale_date", "sale_type", "net_total", "initial_paid_amount")\
+        .annotate(paid_amount=Sum("paid_amount"))\
         .order_by("sale_date")
+
 
     emi_qs = EmiTracker.objects.filter(payment_date__gte=start_date, paid_amount__gt=0)\
         .values("payment_date")\
@@ -89,14 +91,14 @@ def get_dashboard_charts(period="monthly"):
     for row in bike_qs:
         date_obj = safe_local_date(row["sale_date"])
         key = get_key(date_obj)
-        if row["sale_type"] == "full":
-            amt = float(row["net_total"] or 0)
-        elif row["sale_type"] == "downpayment":
-            amt = float(row["initial_paid_amount"] or 0)
-        else:
-            amt = 0
+
+        # Fetch the BikeSale instance
+        bike_sale = BikeSale.objects.get(id=row["id"])
+        amt = get_bike_sale_total_paid(bike_sale)
+
         bike_income.setdefault(key, 0)
         bike_income[key] += amt
+
 
     # Include EMI payments
     for row in emi_qs:

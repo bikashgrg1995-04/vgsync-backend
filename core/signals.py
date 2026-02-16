@@ -14,6 +14,7 @@ from .models import (
     Sale, SaleItem, PurchaseItem, FollowUpDashboard,
     OrderItem, Stock, BikeSale, BikeSaleFollowUp
 )
+from dateutil.relativedelta import relativedelta
 
 # =====================================================
 # CONSTANTS
@@ -110,41 +111,33 @@ def restore_stock_on_purchase_delete(sender, instance, **kwargs):
 # PURCHASE → EXPENSE
 # =====================================================
 @receiver(post_save, sender=Purchase)
-@transaction.atomic
-def sync_purchase_expense(sender, instance, **kwargs):
-    total_amount = calculate_purchase_net_total(instance)
-
-    expense = Expense.objects.filter(
-        reference_type='purchase',
-        reference_id=instance.id
-    ).first()
-
-    if total_amount <= 0:
-        if expense:
-            expense.delete()
+def sync_purchase_expense(sender, instance: Purchase, created, **kwargs):
+    """
+    Creates or updates an Expense whenever a Purchase is created or updated.
+    The Expense amount will reflect the actual paid_amount of the Purchase.
+    """
+    if instance.paid_amount <= 0:
+        # No payment yet, skip creating expense
         return
 
-    title = f"Purchase - {instance.supplier.name if instance.supplier else 'Unknown'}"
+    expense_data = {
+        "title": f"Purchase Payment - {instance.id}",
+        "expense_type": "operational",
+        "amount": instance.paid_amount,  # actual paid amount
+        "expense_date": instance.date,
+        "payment_mode": instance.paid_from if instance.paid_from in ['cash', 'online'] else 'cash',
+        "spent_by": instance.created_by,
+        "reference_type": "Purchase",
+        "reference_id": instance.id,
+        "note": f"Purchase from {instance.supplier.name}, total: {instance.grand_total}, paid: {instance.paid_amount}"
+    }
 
-    expense_date = safe_local_date(instance.date)
-
-    if not expense:
-        Expense.objects.create(
-            reference_type='purchase',
-            reference_id=instance.id,
-            title=title,
-            expense_type='operational',
-            amount=total_amount,
-            expense_date=expense_date,
-            payment_mode=getattr(instance, 'paid_from', 'cash'),
-            spent_by=None,
-            note=f"Auto-generated expense for Purchase #{instance.id}"
-        )
-    else:
-        expense.amount = total_amount
-        expense.title = title
-        expense.expense_date = expense_date
-        expense.save(update_fields=['amount', 'title', 'expense_date'])
+    # Check if Expense already exists for this purchase
+    expense, _ = Expense.objects.update_or_create(
+        reference_type="Purchase",
+        reference_id=instance.id,
+        defaults=expense_data
+    )
 
 
 @receiver(pre_delete, sender=Purchase)
@@ -301,6 +294,23 @@ def handle_salary_transaction_save(sender, instance, created, **kwargs):
 
         tracker.save(update_fields=['paid_amount', 'status'])
 
+        # ---------------- Create next month tracker if fully paid ----------------
+        if tracker.staff.salary_mode == 'monthly' and tracker.status == 'paid':
+            next_month_date = (tracker.date or timezone.now()) + relativedelta(months=1)
+
+            # Check if next month tracker already exists
+            next_tracker, created_next = SalaryTracker.objects.get_or_create(
+                staff=tracker.staff,
+                date__year=next_month_date.year,
+                date__month=next_month_date.month,
+                defaults={
+                    "date": next_month_date,
+                    "total_salary": tracker.total_salary,
+                    "paid_amount": 0,
+                    "status": "pending"
+                }
+            )
+
 @receiver(pre_delete, sender=SalaryTransaction)
 @transaction.atomic
 def handle_salary_transaction_delete(sender, instance, **kwargs):
@@ -324,26 +334,34 @@ def handle_salary_transaction_delete(sender, instance, **kwargs):
     tracker.status = 'paid' if total_paid > 0 else 'pending'
     tracker.save(update_fields=['paid_amount', 'status'])
 
-
 @receiver(post_save, sender=BikeSale)
 def bike_sale_followup(sender, instance, created, **kwargs):
-    # ✅ Only on create
-    if not created:
-        return
 
     base_date = instance.sale_date or timezone.now()
 
-    BikeSaleFollowUp.objects.create(
-        bike_sale=instance,
-        customer_name=instance.customer_name or "Unknown",
-        contact_no=instance.contact_no,
-        vehicle=instance.vehicle_model or instance.bike_registration_no,
-        delivery_date=base_date,
-        post_service_feedback_date=base_date + timedelta(days=POST_FEEDBACK_DAYS),
-        follow_up_date=base_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS),
-        remarks="Auto-created bike sale follow-up",
-        status="pending"
-    )
+    if created:
+        # 🔹 Create followup only once
+        BikeSaleFollowUp.objects.create(
+            bike_sale=instance,
+            customer_name=instance.customer_name or "Unknown",
+            contact_no=instance.contact_no,
+            vehicle=instance.vehicle_model or instance.bike_registration_no,
+            delivery_date=base_date,
+            post_service_feedback_date=base_date + timedelta(days=POST_FEEDBACK_DAYS),
+            follow_up_date=base_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS),
+            remarks="Auto-created bike sale follow-up",
+            status="pending"
+        )
+    else:
+        # 🔹 Update existing followup (but NOT status)
+        BikeSaleFollowUp.objects.filter(bike_sale=instance).update(
+            customer_name=instance.customer_name or "Unknown",
+            contact_no=instance.contact_no,
+            vehicle=instance.vehicle_model or instance.bike_registration_no,
+            delivery_date=base_date,
+            post_service_feedback_date=base_date + timedelta(days=POST_FEEDBACK_DAYS),
+            follow_up_date=base_date + timedelta(days=FOLLOW_UP_INTERVAL_DAYS),
+        )
 
 
 @receiver(pre_delete, sender=BikeSale)

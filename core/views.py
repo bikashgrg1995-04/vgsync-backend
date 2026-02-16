@@ -1,15 +1,14 @@
-from collections import defaultdict
+# core/views.py
+from datetime import timedelta
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F
+from django.core.paginator import Paginator
 from rest_framework import viewsets, filters, status, generics
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-
-from core.services.utils import safe_local_date
-from django.core.paginator import Paginator
-
+from django.utils import timezone
 
 from core.permissions import IsAdminOrReadOnlyForStaff
 from core.services.dashoard.chart_service import get_dashboard_charts
@@ -23,76 +22,55 @@ from core.services.uploads.purchase_upload import upload_purchase_excel
 from core.services.uploads.sale_upload import upload_sales_excel
 from core.services.uploads.stock_upload import upload_stock_excel
 
-
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock,
-    Purchase, PurchaseItem,
-    Sale, SaleItem,
-    FollowUpDashboard,
-    Order, OrderItem,
-    Staff, User, BikeSale, EmiTracker, BikeSaleFollowUp
+    Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
+    Order, OrderItem, Staff, User, BikeSale, EmiTracker, BikeSaleFollowUp
 )
 
 from .serializers import (
-    ExpenseSerializer,
-    SalaryTrackerSerializer,
-    SalaryTransactionSerializer,
-    SaleReadSerializer,
-    ServiceSaleReadSerializer,
-    ServiceSaleSerializer,
-    SupplierSerializer,
-    CategorySerializer,
-    StockSerializer,
-    PurchaseSerializer,
-    StockSaleSerializer,
-    FollowUpDashboardSerializer,
-    StaffSerializer,
-    OrderSerializer,
-    UserSerializer, BikeSaleSerializer, EmiTrackerSerializer, EmiTrackerUpdateSerializer, BikeSaleFollowUpSerializer
-
+    ExpenseSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer,
+    SaleReadSerializer, ServiceSaleReadSerializer, ServiceSaleSerializer,
+    SupplierSerializer, CategorySerializer, StockSerializer, PurchaseSerializer,
+    StockSaleSerializer, FollowUpDashboardSerializer, StaffSerializer,
+    OrderSerializer, UserSerializer, BikeSaleSerializer,
+    EmiTrackerSerializer, EmiTrackerUpdateSerializer, BikeSaleFollowUpSerializer
 )
+
+# =====================================================
+# Base ViewSet to remove repetition
+# =====================================================
+class BaseModelViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
 
 
 # ===================== CATEGORY =====================
-class CategoryViewSet(viewsets.ModelViewSet):
+class CategoryViewSet(BaseModelViewSet):
     queryset = Category.objects.all().order_by('name')
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name']
     ordering_fields = ['name']
 
 
 # ===================== USER =====================
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(BaseModelViewSet):
     queryset = User.objects.all().order_by('id')
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+
 
 # ===================== SUPPLIER =====================
-class SupplierViewSet(viewsets.ModelViewSet):
+class SupplierViewSet(BaseModelViewSet):
     queryset = Supplier.objects.all().order_by('name')
     serializer_class = SupplierSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'contact', 'email']
     ordering_fields = ['name']
 
-# ===================== CATEGORY =====================
-class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all().order_by('name')
-    serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name']
-    ordering_fields = ['name']
 
 # ===================== STOCK =====================
-class StockViewSet(viewsets.ModelViewSet):
+class StockViewSet(BaseModelViewSet):
     queryset = Stock.objects.all().order_by('name')
     serializer_class = StockSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'model', 'category__name']
     ordering_fields = ['name', 'stock', 'purchase_price', 'sale_price']
 
@@ -102,11 +80,11 @@ class StockViewSet(viewsets.ModelViewSet):
         instance.delete()
         return Response({"detail": "Stock item deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
+
 # ===================== PURCHASE =====================
-class PurchaseViewSet(viewsets.ModelViewSet):
+class PurchaseViewSet(BaseModelViewSet):
     queryset = Purchase.objects.all().order_by('-date')
     serializer_class = PurchaseSerializer
-    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
@@ -114,204 +92,131 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         purchase.delete()
         return Response({"detail": "Purchase deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
+
 # ===================== SALE =====================
-class SaleViewSet(viewsets.ModelViewSet):
+class SaleViewSet(BaseModelViewSet):
     queryset = Sale.objects.all().order_by('-sale_date')
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             data = getattr(self.request, 'data', {})
             if data.get('is_servicing') or data.get('job_card_no'):
-                return ServiceSaleSerializer  # for POST/PUT
+                return ServiceSaleSerializer
             return StockSaleSerializer
-        # For GET: use read serializers
-        sale = None
         if self.action in ['retrieve', 'list']:
-            if self.action == 'retrieve':
-                sale = self.get_object()
-            # If list, we can’t check each, so fallback to SaleReadSerializer for stock, ServiceSaleReadSerializer for servicing
             return SaleReadSerializer
         return StockSaleSerializer
 
     def list(self, request, *args, **kwargs):
-        sales = self.get_queryset()
+        sales = self.get_queryset().select_related('handled_by')
         data = []
         for sale in sales:
-            if sale.is_servicing:
-                serializer = ServiceSaleReadSerializer(sale)
-            else:
-                serializer = SaleReadSerializer(sale)
+            serializer = ServiceSaleReadSerializer(sale) if sale.is_servicing else SaleReadSerializer(sale)
             data.append(serializer.data)
         return Response(data)
 
     def retrieve(self, request, *args, **kwargs):
         sale = self.get_object()
-        if sale.is_servicing:
-            serializer = ServiceSaleReadSerializer(sale)
-        else:
-            serializer = SaleReadSerializer(sale)
+        serializer = ServiceSaleReadSerializer(sale) if sale.is_servicing else SaleReadSerializer(sale)
         return Response(serializer.data)
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            sale = serializer.save()
-        # return full data
-        if sale.is_servicing:
-            read_serializer = ServiceSaleReadSerializer(sale)
-        else:
-            read_serializer = SaleReadSerializer(sale)
+        sale = serializer.save()
+        read_serializer = ServiceSaleReadSerializer(sale) if sale.is_servicing else SaleReadSerializer(sale)
         return Response(read_serializer.data, status=status.HTTP_201_CREATED)
 
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            sale = serializer.save()
-        if sale.is_servicing:
-            read_serializer = ServiceSaleReadSerializer(sale)
-        else:
-            read_serializer = SaleReadSerializer(sale)
+        sale = serializer.save()
+        read_serializer = ServiceSaleReadSerializer(sale) if sale.is_servicing else SaleReadSerializer(sale)
         return Response(read_serializer.data)
 
 
-# =================================================
-# 📊 CHART + CREDIT API
-# =================================================
+# =====================================================
+# Dashboard APIs
+# =====================================================
 @api_view(["GET"])
 def dashboard_charts_api(request):
     period = request.GET.get("period", "monthly")
     return Response(get_dashboard_charts(period))
+
 
 @api_view(["GET"])
 def dashboard_credit_api(request):
     period = request.GET.get("period", "monthly")
     page = int(request.GET.get("page", 1))
     page_size = int(request.GET.get("page_size", 5))
+    return Response(get_credit_summary(period=period, page=page, page_size=page_size))
 
-    data = get_credit_summary(
-        period=period,
-        page=page,
-        page_size=page_size,
-    )
 
-    return Response(data)
-
-# =================================================
-# 📋 TABLE DATA API
-# =================================================
 @api_view(["GET"])
 def followups_api(request):
     page = int(request.GET.get("page", 1))
     page_size = int(request.GET.get("page_size", 5))
     days = int(request.GET.get("days", 10))
+    return Response(get_followups(days=days, page=page, page_size=page_size))
 
-    data = get_followups(
-        days=days,
-        page=page,
-        page_size=page_size,
-    )
-
-    return Response(data)
 
 @api_view(["GET"])
 def low_stock_api(request):
     page = int(request.GET.get("page", 1))
     page_size = int(request.GET.get("page_size", 5))
     threshold = int(request.GET.get("threshold", 5))
+    return Response(get_low_stock(threshold=threshold, page=page, page_size=page_size))
 
-    data = get_low_stock(
-        threshold=threshold,
-        page=page,
-        page_size=page_size,
-    )
-
-    return Response(data)
 
 @api_view(["GET"])
 def orders_api(request):
     page = int(request.GET.get("page", 1))
     page_size = int(request.GET.get("page_size", 5))
-
-    data = get_orders(
-        page=page,
-        page_size=page_size,
-    )
-
-    return Response(data)
+    return Response(get_orders(page=page, page_size=page_size))
 
 
 @api_view(["GET"])
 def staff_salary_api(request):
     page = int(request.GET.get("page", 1))
     page_size = int(request.GET.get("page_size", 5))
+    return Response(get_staff_salaries(page=page, page_size=page_size))
 
-    data = get_staff_salaries(
-        page=page,
-        page_size=page_size,
-    )
-
-    return Response(data)
 
 # ===================== STAFF =====================
-class StaffViewSet(viewsets.ModelViewSet):
+class StaffViewSet(BaseModelViewSet):
     queryset = Staff.objects.all().order_by('name')
     serializer_class = StaffSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnlyForStaff]
 
+
+# ===================== FOLLOW-UP DASHBOARD =====================
 class FollowUpDashboardViewSet(viewsets.ViewSet):
     """
-    Unified follow-up dashboard:
-    - Includes Sale and BikeSale follow-ups
-    - NO date filtering (frontend handles filtering)
+    Unified follow-up dashboard: Sale + BikeSale follow-ups
     """
 
     def list(self, request):
-        # Pagination params
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
 
-        # ---------------- Sale follow-ups ----------------
         sale_qs = FollowUpDashboard.objects.values(
-            'id',
-            'customer_name',
-            'contact_no',
-            'vehicle',
-            'delivery_date',
-            'post_service_feedback_date',
-            'follow_up_date',
-            'remarks',
-            'status',
+            'id', 'customer_name', 'contact_no', 'vehicle', 'delivery_date',
+            'post_service_feedback_date', 'follow_up_date', 'remarks', 'status'
         )
-
-        # ---------------- BikeSale follow-ups ----------------
         bike_qs = BikeSaleFollowUp.objects.values(
-            'id',
-            'customer_name',
-            'contact_no',
-            'vehicle',
-            'delivery_date',
-            'post_service_feedback_date',
-            'follow_up_date',
-            'remarks',
-            'status',
+            'id', 'customer_name', 'contact_no', 'vehicle', 'delivery_date',
+            'post_service_feedback_date', 'follow_up_date', 'remarks', 'status'
         )
 
-        # ---------------- Combine & sort ----------------
         combined = list(sale_qs) + list(bike_qs)
+        combined.sort(key=lambda x: x['follow_up_date'] or x['delivery_date'])
 
-        # Safely sort by follow_up_date (null-safe)
-        combined.sort(
-            key=lambda x: x['follow_up_date'] or x['delivery_date']
-        )
-
-        # ---------------- Pagination ----------------
         paginator = Paginator(combined, page_size)
         page_obj = paginator.get_page(page)
-
         return Response({
             "results": list(page_obj),
             "pagination": {
@@ -326,131 +231,93 @@ class FollowUpDashboardViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['post'], url_path='terminate')
     def terminate_followup(self, request, pk=None):
-        """
-        Terminate Sale or BikeSale follow-up
-        """
         followup = (
-            FollowUpDashboard.objects.filter(pk=pk).first()
-            or BikeSaleFollowUp.objects.filter(pk=pk).first()
+            FollowUpDashboard.objects.filter(pk=pk).first() or
+            BikeSaleFollowUp.objects.filter(pk=pk).first()
         )
-
         if not followup:
-            return Response(
-                {"detail": "Follow-up not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response({"detail": "Follow-up not found."}, status=status.HTTP_404_NOT_FOUND)
 
         reason = request.data.get('reason')
         followup.terminate(reason=reason)
-
         serializer = FollowUpDashboardSerializer(followup)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data)
+
 
 # ===================== ORDER =====================
-class OrderViewSet(viewsets.ModelViewSet):
+class OrderViewSet(BaseModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
-    permission_classes = [IsAuthenticated]
+
 
 # ===================== SALARY =====================
-class SalaryTrackerViewSet(viewsets.ModelViewSet):
+class SalaryTrackerViewSet(BaseModelViewSet):
     queryset = SalaryTracker.objects.all()
     serializer_class = SalaryTrackerSerializer
-    permission_classes = [IsAuthenticated]
 
-class SalaryTransactionViewSet(viewsets.ModelViewSet):
+
+class SalaryTransactionViewSet(BaseModelViewSet):
     queryset = SalaryTransaction.objects.all()
     serializer_class = SalaryTransactionSerializer
-    permission_classes = [IsAuthenticated]
+
 
 # ===================== EXPENSE =====================
-class ExpenseViewSet(viewsets.ModelViewSet):
+class ExpenseViewSet(BaseModelViewSet):
     queryset = Expense.objects.all()
     serializer_class = ExpenseSerializer
-    permission_classes = [IsAuthenticated]
 
-# ===================== ORDER =====================
-class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all()
-    serializer_class = OrderSerializer
-    permission_classes = [IsAuthenticated]
 
-# ===================== EXPENSE =====================
-class ExpenseViewSet(viewsets.ModelViewSet):
-    queryset = Expense.objects.all()
-    serializer_class = ExpenseSerializer
-    permission_classes = [IsAuthenticated]
+# ===================== EXCEL UPLOAD APIS =====================
+def handle_excel_upload(file, upload_func, user=None):
+    if not file:
+        return Response({"error": "Excel file required"}, status=400)
+    return Response(upload_func(file, user) if user else upload_func(file))
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def purchase_excel_upload_api(request):
-    file = request.FILES.get("file")
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_purchase_excel(file, request.user))
+    return handle_excel_upload(request.FILES.get("file"), upload_purchase_excel, request.user)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def sale_excel_upload_api(request):
-    file = request.FILES.get("file")
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_sales_excel(file))
+    return handle_excel_upload(request.FILES.get("file"), upload_sales_excel)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def stock_excel_upload_api(request):
-    file = request.FILES.get("file")
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_stock_excel(file))
+    return handle_excel_upload(request.FILES.get("file"), upload_stock_excel)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def order_excel_upload_api(request):
-    file = request.FILES.get("file")
-    if not file:
-        return Response({"error": "Excel file required"}, status=400)
-    return Response(upload_order_excel(file))
+    return handle_excel_upload(request.FILES.get("file"), upload_order_excel)
 
 
-# ----------------- BikeSale CRUD -----------------
-class BikeSaleViewSet(viewsets.ModelViewSet):
+# ===================== BIKE SALE =====================
+class BikeSaleViewSet(BaseModelViewSet):
     queryset = BikeSale.objects.all().order_by('-sale_date')
     serializer_class = BikeSaleSerializer
 
-    def create(self, request, *args, **kwargs):
-        """
-        Automatically reject EMI tracker creation if sale_type is not EMI
-        """
-        sale_type = request.data.get('sale_type')
-        response = super().create(request, *args, **kwargs)
-      
-        return response
 
-# ----------------- EMI Tracker CRUD -----------------
-class EmiTrackerViewSet(viewsets.ModelViewSet):
+# ===================== EMI TRACKER =====================
+class EmiTrackerViewSet(BaseModelViewSet):
     queryset = EmiTracker.objects.all().order_by('installment_no')
     serializer_class = EmiTrackerSerializer
 
     def create(self, request, *args, **kwargs):
-        # Ensure only EMI sales can have EMI trackers
         sale_id = request.data.get('sale')
         sale = BikeSale.objects.get(id=sale_id)
         if sale.sale_type != 'emi':
-            return Response(
-                {"error": "EMI tracker can only be created for EMI sales."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "EMI tracker can only be created for EMI sales."}, status=status.HTTP_400_BAD_REQUEST)
         return super().create(request, *args, **kwargs)
-
 
 
 class EmiTrackerUpdateAPIView(generics.UpdateAPIView):
     queryset = EmiTracker.objects.all()
     serializer_class = EmiTrackerUpdateSerializer
-    lookup_field = 'id'  # frontend sends the EMI id
+    lookup_field = 'id'  # frontend sends EMI id

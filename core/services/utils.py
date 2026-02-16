@@ -218,3 +218,20 @@ def update_bike_sale_payment_from_emi(sale):
     # Update status
     sale.status = get_bike_sale_status(getattr(sale, 'net_total', 0), total_paid)
     sale.save(update_fields=['paid_amount', 'remaining_amount', 'status'])
+
+
+
+
+def get_bike_sale_total_paid(bike_sale):
+    if bike_sale.sale_type == "full":
+        return float(bike_sale.net_total or 0)
+    elif bike_sale.sale_type == "downpayment":
+        return float(bike_sale.initial_paid_amount or 0)
+    elif bike_sale.sale_type == "emi":
+        # get related_name correctly
+        rel_name = getattr(bike_sale, "emis", None) or getattr(bike_sale, "emi_tracker_set", None)
+        if rel_name:
+            emi_sum = rel_name.filter(paid_amount__gt=0).aggregate(total=Sum("paid_amount"))["total"] or 0
+            return float(emi_sum)
+        return 0
+    return 0
