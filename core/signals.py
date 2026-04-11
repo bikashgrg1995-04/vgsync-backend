@@ -19,7 +19,7 @@ from dateutil.relativedelta import relativedelta
 # =====================================================
 # CONSTANTS
 # =====================================================
-FOLLOW_UP_INTERVAL_DAYS = 30
+FOLLOW_UP_INTERVAL_DAYS = 90
 POST_FEEDBACK_DAYS = 3
 
 
@@ -60,17 +60,16 @@ def store_old_purchase_qty(sender, instance, **kwargs):
 def adjust_stock_on_purchase_save(sender, instance, **kwargs):
     purchase = instance.purchase
 
-    if not purchase.is_migrated:
-        # 1️⃣ Update Stock quantity
-        diff = instance.quantity - getattr(instance, "_old_quantity", 0)
-        if diff:
+      # 1️⃣ Update Stock quantity
+    diff = instance.quantity - getattr(instance, "_old_quantity", 0)
+    if diff:
             Stock.objects.select_for_update().filter(
                 pk=instance.item_id
             ).update(stock=F('stock') + diff)
 
         # 2️⃣ Update purchase price in stock
-        stock = Stock.objects.filter(pk=instance.item_id).first()
-        if stock:
+    stock = Stock.objects.filter(pk=instance.item_id).first()
+    if stock:
             stock.purchase_price = instance.price
             # 3️⃣ Auto-calculate sale price = purchase + 13%
             stock.sale_price = round(instance.price * 1.13, 2)
@@ -86,12 +85,11 @@ def adjust_stock_on_purchase_save(sender, instance, **kwargs):
 def restore_stock_on_purchase_delete(sender, instance, **kwargs):
     purchase = instance.purchase
 
-    if not purchase.is_migrated:
-        Stock.objects.select_for_update().filter(
+    Stock.objects.select_for_update().filter(
             pk=instance.item_id
         ).update(stock=F('stock') - instance.quantity)
 
-        latest = (
+    latest = (
             PurchaseItem.objects
             .filter(item_id=instance.item_id)
             .exclude(pk=instance.pk)
@@ -99,7 +97,7 @@ def restore_stock_on_purchase_delete(sender, instance, **kwargs):
             .first()
         )
 
-        Stock.objects.filter(pk=instance.item_id).update(
+    Stock.objects.filter(pk=instance.item_id).update(
             purchase_price=latest.price if latest else 0
         )
 
@@ -143,7 +141,7 @@ def sync_purchase_expense(sender, instance: Purchase, created, **kwargs):
 @receiver(pre_delete, sender=Purchase)
 def delete_purchase_expense(sender, instance, **kwargs):
     Expense.objects.filter(
-        reference_type='purchase',
+        reference_type='Purchase',
         reference_id=instance.id
     ).delete()
 

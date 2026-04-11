@@ -87,10 +87,11 @@ def upload_purchase_excel(file, user):
             )
 
             # ---------------- Totals ----------------
-            purchase.net_total = net_total
-            purchase.discount_amount = discount
-            purchase.grand_total = net_total - discount
-            purchase.remaining_amount = purchase.grand_total
+
+            purchase.grand_total = net_total          # items total
+            purchase.discount_amount = discount        # discount amount
+            purchase.net_total = net_total - discount  # discount काटेको
+            purchase.remaining_amount = purchase.net_total - purchase.amount_paid  # initial remaining amount
 
             purchase.save(update_fields=['net_total', 'discount_amount', 'grand_total', 'remaining_amount'])
 

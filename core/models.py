@@ -207,7 +207,7 @@ class Stock(models.Model):
     image = models.ImageField(upload_to=upload_to_item, blank=True, null=True)
 
     class Meta:
-        unique_together = ('name', 'model', 'category')
+        pass
 
     def __str__(self):
         return f"{self.name} ({self.model})"

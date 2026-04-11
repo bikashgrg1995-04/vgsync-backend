@@ -21,6 +21,7 @@ from core.services.uploads.order_upload import upload_order_excel
 from core.services.uploads.purchase_upload import upload_purchase_excel
 from core.services.uploads.sale_upload import upload_sales_excel
 from core.services.uploads.stock_upload import upload_stock_excel
+from core.services.uploads.new_mrp_upload import upload_mrp_excel
 
 from .models import (
     Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock,
@@ -43,6 +44,7 @@ from .serializers import (
 class BaseModelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    pagination_class = None
 
 
 # ===================== CATEGORY =====================
@@ -278,6 +280,11 @@ def handle_excel_upload(file, upload_func, user=None):
 @permission_classes([IsAuthenticated])
 def purchase_excel_upload_api(request):
     return handle_excel_upload(request.FILES.get("file"), upload_purchase_excel, request.user)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def new_mrp_excel_upload_api(request):
+    return handle_excel_upload(request.FILES.get("file"), upload_mrp_excel)
 
 
 @api_view(['POST'])

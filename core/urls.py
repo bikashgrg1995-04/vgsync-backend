@@ -31,6 +31,7 @@ from .views import (
     sale_excel_upload_api,
     staff_salary_api,
     stock_excel_upload_api,
+    new_mrp_excel_upload_api,
 
     #Bike Sale
     BikeSaleViewSet, EmiTrackerViewSet, EmiTrackerUpdateAPIView
@@ -133,6 +134,7 @@ urlpatterns = [
     path("upload/sales-excel/", sale_excel_upload_api),
     path("upload/stock-excel/", stock_excel_upload_api),
     path("upload/order-excel/", order_excel_upload_api),
+    path("upload/new-mrp-excel/", new_mrp_excel_upload_api),
 
     #installment pay garda emi update hune endpoint
     path('emi/<int:id>/update/', EmiTrackerUpdateAPIView.as_view(), name='emi-update'),
