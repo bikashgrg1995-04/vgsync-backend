@@ -9,7 +9,7 @@ REM Allow PowerShell scripts temporarily
 powershell -Command "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass"
 
 REM Navigate to your project directory (edit path below)
-cd /d "D:\Projects\django\vgsync-backend"
+cd /d "C:\Users\ADMIN\vgsync-backend"
 
 REM Activate virtual environment (edit 'venv' if your folder name differs)
 call env\Scripts\activate
