@@ -1,7 +1,7 @@
 from django.db import models, transaction
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser
-from django.db.models import F
+from django.db.models import F, Sum
 from datetime import timedelta
 
 def upload_to_item(instance, filename):
@@ -228,13 +228,18 @@ class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
     date = models.DateTimeField(default=timezone.now)
 
-    # FINANCIAL (UI CALCULATED)
-    net_total = models.FloatField(default=0)            # frontend bata pathaune
+    grand_total = models.FloatField(default=0)
+
     discount_percentage = models.FloatField(default=0)
     discount_amount = models.FloatField(default=0)
-    grand_total = models.FloatField(default=0)          # frontend bata pathaune
-    paid_amount = models.FloatField(default=0)          # frontend bata pathaune
-    remaining_amount = models.FloatField(default=0)     # frontend bata pathaune
+    amount_before_transit_discount = models.FloatField(default=0)  # ✅ NEW
+
+    transit_discount_percentage = models.FloatField(default=0)     # ✅ NEW
+    transit_discount_amount = models.FloatField(default=0)         # ✅ NEW
+
+    net_total = models.FloatField(default=0)          # यो अब final amount हो (transit पछि)
+    paid_amount = models.FloatField(default=0)
+    remaining_amount = models.FloatField(default=0)
 
     STATUS_CHOICES = [('pending','Pending'),('partial','Partial'),('paid','Paid')]
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
@@ -245,7 +250,7 @@ class Purchase(models.Model):
     paid_from = models.CharField(max_length=20, choices=PAID_FROM_CHOICES, default='cash')
 
     def save(self, *args, **kwargs):
-        # Backend will NOT calculate totals
+        # Backend will NOT calculate totals — frontend le pathaucha
         super().save(*args, **kwargs)
 
 

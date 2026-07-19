@@ -103,10 +103,13 @@ class PurchaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Purchase
         fields = (
-            'id', 'supplier', 'date', 'created_by',
-            'grand_total', 'discount_amount', 'net_total',
+          'id', 'supplier', 'date', 'created_by',
+            'grand_total',
+            'discount_percentage', 'discount_amount', 'amount_before_transit_discount',   # ✅ NEW
+            'transit_discount_percentage', 'transit_discount_amount',                      # ✅ NEW
+            'net_total',
             'paid_amount', 'remaining_amount', 'status',
-            'is_migrated',  # migration flag
+            'is_migrated',
             'items',
         )
 
