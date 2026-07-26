@@ -2,9 +2,9 @@
 title VGSync Safe DB Backup (dumpdata)
 
 :: ---- CONFIG ----
-set PROJECT_DIR=D:\Projects\django\vgsync-backend
-set BACKUP_DIR=D:\Projects\django\vgsync-backend\backups
-set PYTHON=D:\Projects\django\vgsync-backend\env\Scripts\python.exe
+set PROJECT_DIR=C:\Users\ADMIN\vgsync-backend
+set BACKUP_DIR=C:\Users\ADMIN\vgsync-backend\backups
+set PYTHON=C:\Users\ADMIN\vgsync-backend\env\Scripts\python.exe
 
 :: ---- VALIDATION ----
 if not exist "%PROJECT_DIR%\manage.py" (

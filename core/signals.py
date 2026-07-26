@@ -12,7 +12,7 @@ from django.db import transaction
 from .models import (
     Expense, Order, Purchase, SalaryTracker, SalaryTransaction,
     Sale, SaleItem, PurchaseItem, FollowUpDashboard,
-    OrderItem, Stock, BikeSale, BikeSaleFollowUp
+    OrderItem, Stock, BikeSale, BikeSaleFollowUp, SaleReturn, SaleReturnItem, PurchaseReturn, PurchaseReturnItem
 )
 from dateutil.relativedelta import relativedelta
 
@@ -365,3 +365,158 @@ def bike_sale_followup(sender, instance, created, **kwargs):
 @receiver(pre_delete, sender=BikeSale)
 def delete_bike_sale_followup(sender, instance, **kwargs):
     BikeSaleFollowUp.objects.filter(bike_sale=instance).delete()
+
+
+
+# =====================================================
+# SALE RETURN → STOCK + SALE TOTALS
+# =====================================================
+@receiver(pre_save, sender=SaleReturnItem)
+def store_old_sale_return_qty(sender, instance, **kwargs):
+    instance._old_quantity = 0
+    if instance.pk:
+        instance._old_quantity = (
+            SaleReturnItem.objects.filter(pk=instance.pk)
+            .values_list('quantity', flat=True).first()
+        ) or 0
+
+
+@receiver(post_save, sender=SaleReturnItem)
+@transaction.atomic
+def adjust_on_sale_return_save(sender, instance, **kwargs):
+    diff = instance.quantity - instance._old_quantity  # newly returned qty this save
+    sale_item = instance.sale_item
+
+    if diff:
+        # 1️⃣ Stock comes back
+        Stock.objects.select_for_update().filter(
+            pk=sale_item.item_id
+        ).update(stock=F('stock') + diff)
+
+        # 2️⃣ Track returned qty on the sale item
+        SaleItem.objects.filter(pk=sale_item.pk).update(
+            returned_quantity=F('returned_quantity') + diff
+        )
+
+    _recalculate_sale_after_return(instance.sale_return.sale_id)
+
+
+@receiver(pre_delete, sender=SaleReturnItem)
+@transaction.atomic
+def revert_on_sale_return_delete(sender, instance, **kwargs):
+    sale_item = instance.sale_item
+
+    # Reverse: stock goes back out, returned_quantity decreases
+    Stock.objects.select_for_update().filter(
+        pk=sale_item.item_id
+    ).update(stock=F('stock') - instance.quantity)
+
+    SaleItem.objects.filter(pk=sale_item.pk).update(
+        returned_quantity=F('returned_quantity') - instance.quantity
+    )
+
+
+@receiver(post_delete, sender=SaleReturnItem)
+def recalc_sale_after_return_delete(sender, instance, **kwargs):
+    _recalculate_sale_after_return(instance.sale_return.sale_id)
+
+
+def _recalculate_sale_after_return(sale_id):
+    """Recompute SaleReturn.total_refund_amount and Sale's net_total/remaining/status."""
+    sale = Sale.objects.filter(pk=sale_id).first()
+    if not sale:
+        return
+
+    # total refunded across ALL returns for this sale
+    total_refunded = SaleReturnItem.objects.filter(
+        sale_return__sale_id=sale_id
+    ).aggregate(total=Sum('refund_amount'))['total'] or 0
+
+    # update each SaleReturn's own total
+    for sr in sale.returns.all():
+        sr_total = sr.items.aggregate(total=Sum('refund_amount'))['total'] or 0
+        SaleReturn.objects.filter(pk=sr.pk).update(total_refund_amount=sr_total)
+
+    # adjust sale net_total (grand_total already fixed at sale time; net reduces by refund)
+    new_net_total = max(sale.grand_total - sale.discount_amount - total_refunded, 0)
+    paid = sale.paid_amount
+    if paid > new_net_total:
+        paid = new_net_total  # cap paid if it now exceeds new net (edge case)
+
+    remaining = new_net_total - paid
+
+    Sale.objects.filter(pk=sale_id).update(
+        net_total=new_net_total,
+        paid_amount=paid,
+        remaining_amount=remaining,
+        is_paid=Sale.resolve_paid_status_static(new_net_total, paid)
+        if hasattr(Sale, 'resolve_paid_status_static') else sale.is_paid,
+    )
+
+
+# =====================================================
+# PURCHASE RETURN → STOCK + PURCHASE TOTALS
+# =====================================================
+@receiver(pre_save, sender=PurchaseReturnItem)
+def store_old_purchase_return_qty(sender, instance, **kwargs):
+    instance._old_quantity = 0
+    if instance.pk:
+        instance._old_quantity = (
+            PurchaseReturnItem.objects.filter(pk=instance.pk)
+            .values_list('quantity', flat=True).first()
+        ) or 0
+
+
+@receiver(post_save, sender=PurchaseReturnItem)
+@transaction.atomic
+def adjust_on_purchase_return_save(sender, instance, **kwargs):
+    diff = instance.quantity - instance._old_quantity
+    purchase_item = instance.purchase_item
+
+    if diff:
+        # Stock goes back to supplier
+        Stock.objects.select_for_update().filter(
+            pk=purchase_item.item_id
+        ).update(stock=F('stock') - diff)
+
+        PurchaseItem.objects.filter(pk=purchase_item.pk).update(
+            returned_quantity=F('returned_quantity') + diff
+        )
+
+    _recalculate_purchase_after_return(instance.purchase_return.purchase_id)
+
+
+@receiver(pre_delete, sender=PurchaseReturnItem)
+@transaction.atomic
+def revert_on_purchase_return_delete(sender, instance, **kwargs):
+    purchase_item = instance.purchase_item
+
+    Stock.objects.select_for_update().filter(
+        pk=purchase_item.item_id
+    ).update(stock=F('stock') + instance.quantity)
+
+    PurchaseItem.objects.filter(pk=purchase_item.pk).update(
+        returned_quantity=F('returned_quantity') - instance.quantity
+    )
+
+
+@receiver(post_delete, sender=PurchaseReturnItem)
+def recalc_purchase_after_return_delete(sender, instance, **kwargs):
+    _recalculate_purchase_after_return(instance.purchase_return.purchase_id)
+
+
+def _recalculate_purchase_after_return(purchase_id):
+    purchase = Purchase.objects.filter(pk=purchase_id).first()
+    if not purchase:
+        return
+
+    total_refunded = PurchaseReturnItem.objects.filter(
+        purchase_return__purchase_id=purchase_id
+    ).aggregate(total=Sum('refund_amount'))['total'] or 0
+
+    for pr in purchase.returns.all():
+        pr_total = pr.items.aggregate(total=Sum('refund_amount'))['total'] or 0
+        PurchaseReturn.objects.filter(pk=pr.pk).update(total_refund_amount=pr_total)
+
+    new_net_total = max(calculate_purchase_net_total(purchase) - total_refunded, 0)
+    Purchase.objects.filter(pk=purchase_id).update(net_total=new_net_total)

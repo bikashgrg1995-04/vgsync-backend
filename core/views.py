@@ -1,7 +1,7 @@
 # core/views.py
 from datetime import timedelta
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 import openpyxl
@@ -27,14 +27,14 @@ from core.services.uploads.stock_upload import upload_stock_excel
 from core.services.uploads.new_mrp_upload import upload_mrp_excel
 
 from .models import (
-    Expense, SalaryTracker, SalaryTransaction, Supplier, Category, Stock,
+    Expense, PurchaseReturn, SalaryTracker, SalaryTransaction, SaleReturn, Supplier, Category, Stock,
     Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
     Order, OrderItem, Staff, User, BikeSale, EmiTracker, BikeSaleFollowUp
 )
 
 from .serializers import (
-    ExpenseSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer,
-    SaleReadSerializer, ServiceSaleReadSerializer, ServiceSaleSerializer,
+    ExpenseSerializer, PurchaseItemSerializer, PurchaseReturnSerializer, SalaryTrackerSerializer, SalaryTransactionSerializer, SaleItemSerializer,
+    SaleReadSerializer, SaleReturnSerializer, ServiceSaleReadSerializer, ServiceSaleSerializer,
     SupplierSerializer, CategorySerializer, StockSerializer, PurchaseSerializer,
     StockSaleSerializer, FollowUpDashboardSerializer, StaffSerializer,
     OrderSerializer, UserSerializer, BikeSaleSerializer,
@@ -50,6 +50,65 @@ class BaseModelViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
 
+def resolve_sale_paid_status(net, paid):
+    if paid <= 0:
+        return 'not_paid'
+    if paid >= net:
+        return 'paid'
+    return 'partial'
+
+# ===================== CATEGORY ===================== भन्दा माथि नै
+def _recalc_sale_after_return(sale_id):
+    sale = Sale.objects.filter(pk=sale_id).first()
+    if not sale:
+        return
+
+    total_returned_amount = sale.items.aggregate(
+        total=Sum(F('returned_quantity') * F('sale_price'))
+    )['total'] or 0
+
+    new_net = max(sale.grand_total - sale.discount_amount - total_returned_amount, 0)
+    paid = min(sale.paid_amount, new_net)
+    remaining = new_net - paid
+
+    Sale.objects.filter(pk=sale_id).update(
+        net_total=new_net,
+        paid_amount=paid,
+        remaining_amount=remaining,
+        is_paid=resolve_sale_paid_status(new_net, paid),
+    )
+
+
+def _recalc_purchase_after_return(purchase_id):
+    purchase = Purchase.objects.filter(pk=purchase_id).first()
+    if not purchase:
+        return
+
+    total_returned_amount = purchase.items.aggregate(
+        total=Sum(F('returned_quantity') * F('price'))
+    )['total'] or 0
+
+    new_net = max(
+        purchase.grand_total - purchase.discount_amount - total_returned_amount, 0
+    )
+    paid = min(purchase.paid_amount, new_net)
+    remaining = new_net - paid
+
+    if paid <= 0:
+        status_val = 'pending'
+    elif paid >= new_net:
+        status_val = 'paid'
+    else:
+        status_val = 'partial'
+
+    Purchase.objects.filter(pk=purchase_id).update(
+        net_total=new_net,
+        paid_amount=paid,
+        remaining_amount=remaining,
+        status=status_val,
+    )
+
+    
 # ===================== CATEGORY =====================
 class CategoryViewSet(BaseModelViewSet):
     queryset = Category.objects.all().order_by('name')
@@ -371,3 +430,82 @@ class EmiTrackerUpdateAPIView(generics.UpdateAPIView):
     queryset = EmiTracker.objects.all()
     serializer_class = EmiTrackerUpdateSerializer
     lookup_field = 'id'  # frontend sends EMI id
+
+
+class SaleReturnViewSet(BaseModelViewSet):
+    queryset = SaleReturn.objects.all().order_by('-return_date')
+    serializer_class = SaleReturnSerializer
+
+
+class PurchaseReturnViewSet(BaseModelViewSet):
+    queryset = PurchaseReturn.objects.all().order_by('-return_date')
+    serializer_class = PurchaseReturnSerializer
+
+class PurchaseItemViewSet(BaseModelViewSet):
+    queryset = PurchaseItem.objects.all()
+    serializer_class = PurchaseItemSerializer
+
+    @action(detail=True, methods=['post'], url_path='return')
+    @transaction.atomic
+    def return_item(self, request, pk=None):
+        purchase_item = self.get_object()
+        qty = int(request.data.get('quantity', 0))
+        reason = request.data.get('reason', '')
+
+        if qty <= 0:
+            return Response({"error": "Quantity must be greater than 0"}, status=400)
+        if qty > purchase_item.remaining_quantity:
+            return Response(
+                {"error": f"Only {purchase_item.remaining_quantity} left to return"},
+                status=400
+            )
+
+        # stock supplier lai jancha
+        Stock.objects.select_for_update().filter(
+            pk=purchase_item.item_id
+        ).update(stock=F('stock') - qty)
+
+        purchase_item.returned_quantity += qty
+        purchase_item.returned_at = timezone.now()          # 👈 थप्नुस्
+        purchase_item.return_reason = reason                  # 👈 थप्नुस्
+        purchase_item.save(update_fields=['returned_quantity', 'returned_at', 'return_reason'])
+
+        _recalc_purchase_after_return(purchase_item.purchase_id)
+
+        return Response(PurchaseItemSerializer(purchase_item).data)
+
+
+# ===================== SALE ITEM (for return) =====================
+class SaleItemViewSet(BaseModelViewSet):
+    queryset = SaleItem.objects.all()
+    serializer_class = SaleItemSerializer
+
+    @action(detail=True, methods=['post'], url_path='return')
+    @transaction.atomic
+    def return_item(self, request, pk=None):
+        sale_item = self.get_object()
+        qty = int(request.data.get('quantity', 0))
+        reason = request.data.get('reason', '')
+
+        if qty <= 0:
+            return Response({"error": "Quantity must be greater than 0"}, status=400)
+
+        if qty > sale_item.remaining_quantity:
+            return Response(
+                {"error": f"Only {sale_item.remaining_quantity} left to return"},
+                status=400
+            )
+
+        Stock.objects.select_for_update().filter(
+            pk=sale_item.item_id
+        ).update(stock=F('stock') + qty)
+
+        sale_item.returned_quantity += qty
+        sale_item.returned_at = timezone.now()
+        sale_item.return_reason = reason
+        sale_item.save(update_fields=['returned_quantity', 'returned_at', 'return_reason'])
+
+        _recalc_sale_after_return(sale_item.sale_id)
+
+        sale_item.refresh_from_db()
+        return Response(SaleItemSerializer(sale_item).data)

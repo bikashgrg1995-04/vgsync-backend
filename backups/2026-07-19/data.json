@@ -1,0 +1,194 @@
+[
+{
+  "model": "sessions.session",
+  "pk": "5tfj21j4aumm36098v8bxqkuv0x4ynf0",
+  "fields": {
+    "session_data": ".eJxVjMsOwiAUBf-FtSFAeLp07zeQ-0CpGkhKuzL-u23ShW5n5py3yLAuNa-jzHlicRZanH4ZAj1L2wU_oN27pN6WeUK5J_KwQ147l9flaP8OKoy6rV0IXBIYH224Oau0JtQAGBIaRG8ckoqRkiVSG9XeAwOzT4rJeLLi8wXlwThT:1wlKqB:K4LTYB3WEeDxbWVuTZlrdRNBSSl7dfem9T2oqLssLZA",
+    "expire_date": "2026-08-02T06:17:31.770Z"
+  }
+},
+{
+  "model": "core.user",
+  "pk": 1,
+  "fields": {
+    "password": "pbkdf2_sha256$600000$6VIPFDNttyHwptvEylDaQN$Y+mwRlhohemOXQo/XuLu7ch91LzNITVFirVXFIvELs4=",
+    "last_login": "2026-07-19T06:17:31.752Z",
+    "is_superuser": true,
+    "username": "admin",
+    "first_name": "",
+    "last_name": "",
+    "email": "admin@gmail.com",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2026-07-19T06:11:19.380Z",
+    "role": "staff",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "core.staff",
+  "pk": 1,
+  "fields": {
+    "name": "a",
+    "designation": "accountant",
+    "salary_mode": "monthly",
+    "phone": "56549854",
+    "address": "2659",
+    "email": "a@gmail.com",
+    "is_active": true,
+    "joined_date": "2026-07-19"
+  }
+},
+{
+  "model": "core.staff",
+  "pk": 2,
+  "fields": {
+    "name": "b",
+    "designation": "admin",
+    "salary_mode": "monthly",
+    "phone": "484",
+    "address": "isnn",
+    "email": "b@gmail.com",
+    "is_active": true,
+    "joined_date": "2026-07-19"
+  }
+},
+{
+  "model": "core.staff",
+  "pk": 3,
+  "fields": {
+    "name": "c",
+    "designation": "technician",
+    "salary_mode": "daily",
+    "phone": "48454",
+    "address": "babs",
+    "email": "c@gmail.com",
+    "is_active": true,
+    "joined_date": "2026-07-19"
+  }
+},
+{
+  "model": "core.expense",
+  "pk": 1,
+  "fields": {
+    "title": "Purchase Payment - 1",
+    "expense_type": "operational",
+    "amount": 280.9,
+    "expense_date": "2026-07-19",
+    "payment_mode": "cash",
+    "spent_by": 2,
+    "reference_type": "Purchase",
+    "reference_id": 1,
+    "note": "Purchase from xyz supplier, total: 352.0, paid: 280.9",
+    "created_at": "2026-07-19T08:20:20.773Z"
+  }
+},
+{
+  "model": "core.category",
+  "pk": 1,
+  "fields": {
+    "name": "spare"
+  }
+},
+{
+  "model": "core.category",
+  "pk": 2,
+  "fields": {
+    "name": "lube"
+  }
+},
+{
+  "model": "core.category",
+  "pk": 3,
+  "fields": {
+    "name": "oil"
+  }
+},
+{
+  "model": "core.supplier",
+  "pk": 1,
+  "fields": {
+    "name": "abc supplier",
+    "contact": "54984",
+    "address": "asas45",
+    "email": "abc@gmail.com"
+  }
+},
+{
+  "model": "core.supplier",
+  "pk": 2,
+  "fields": {
+    "name": "xyz supplier",
+    "contact": "5489894",
+    "address": "aas54154",
+    "email": "xyz@gmail.com"
+  }
+},
+{
+  "model": "core.stock",
+  "pk": 1,
+  "fields": {
+    "item_no": "1",
+    "name": "amsklasm",
+    "category": 3,
+    "group": "oil",
+    "model": "asas",
+    "stock": 22,
+    "purchase_price": 176.0,
+    "sale_price": 198.88,
+    "is_migrated": false,
+    "block": "A",
+    "image": ""
+  }
+},
+{
+  "model": "core.stock",
+  "pk": 2,
+  "fields": {
+    "item_no": "2",
+    "name": "nfn",
+    "category": 1,
+    "group": "spare",
+    "model": "lxcoj",
+    "stock": 5,
+    "purchase_price": 225.0,
+    "sale_price": 254.25,
+    "is_migrated": false,
+    "block": "A",
+    "image": ""
+  }
+},
+{
+  "model": "core.purchase",
+  "pk": 1,
+  "fields": {
+    "supplier": 2,
+    "date": "2026-07-18T18:15:00Z",
+    "grand_total": 352.0,
+    "discount_percentage": 20.0,
+    "discount_amount": 70.4,
+    "amount_before_transit_discount": 281.6,
+    "transit_discount_percentage": 0.25,
+    "transit_discount_amount": 0.7,
+    "net_total": 281.6,
+    "paid_amount": 280.9,
+    "remaining_amount": 0.0,
+    "status": "paid",
+    "created_by": 2,
+    "is_migrated": false,
+    "paid_from": "cash"
+  }
+},
+{
+  "model": "core.purchaseitem",
+  "pk": 3,
+  "fields": {
+    "purchase": 1,
+    "item": 1,
+    "quantity": 2,
+    "price": 176.0,
+    "sale_price": 0.0
+  }
+}
+]

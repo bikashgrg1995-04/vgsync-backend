@@ -7,7 +7,7 @@ from core.services.utils import extract_item_no, recalc_sale_totals, generate_em
 
 
 from .models import (
-    Expense, SalaryTracker, SalaryTransaction, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
+    Expense, PurchaseReturn, PurchaseReturnItem, SalaryTracker, SalaryTransaction, SaleReturn, SaleReturnItem, Stock, Purchase, PurchaseItem, Sale, SaleItem, FollowUpDashboard,
     Supplier, Staff, Category, Order, OrderItem, User, BikeSale, EmiTracker, BikeSaleFollowUp
 )
 
@@ -93,7 +93,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
     item_name = serializers.CharField(source='item.name', read_only=True)
     class Meta:
         model = PurchaseItem
-        fields = ('id', 'item', 'item_name', 'quantity', 'price')
+        fields = ('id', 'item', 'item_name', 'quantity', 'price', 'returned_quantity', 'returned_at', 'return_reason')
 
 
 # ---------------- PURCHASE ----------------
@@ -156,7 +156,7 @@ class SaleItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SaleItem
-        fields = ['id', 'item', 'item_name', 'category_name', 'quantity', 'sale_price', 'total_price']
+        fields = ['id', 'item', 'item_name', 'category_name', 'quantity', 'sale_price', 'total_price', 'returned_quantity', 'returned_at', 'return_reason']
         read_only_fields = ['total_price']
 
     def to_internal_value(self, data):
@@ -198,7 +198,8 @@ class SaleReadSerializer(serializers.ModelSerializer):
             'grand_total', 'discount_percentage', 'discount_amount', 'net_total',
             'paid_amount', 'remaining_amount', 'is_paid',
 
-            'items'
+            'items',
+            'is_fitting_job', 'labour_charge', 'technician_name'
         ]
 
 
@@ -237,7 +238,8 @@ class StockSaleSerializer(serializers.ModelSerializer):
             'grand_total', 'discount_percentage', 'discount_amount',
             'net_total',
             'paid_amount', 'remaining_amount', 'is_paid', 'paid_from',
-            'handled_by', 'items'
+            'handled_by', 'items',
+            'is_fitting_job', 'labour_charge', 'technician_name'
         ]
 
     @transaction.atomic
@@ -293,7 +295,7 @@ class ServiceSaleReadSerializer(serializers.ModelSerializer):
             # totals
             'grand_total', 'discount_percentage', 'discount_amount',
             'net_total', 'paid_amount', 'remaining_amount', 'is_paid',
-
+            'is_fitting_job', 'labour_charge', 'technician_name',
             'items'
         ]
 
@@ -567,3 +569,77 @@ class BikeSaleFollowUpSerializer(serializers.ModelSerializer):
             'status',  # pending, partial, paid, terminated, etc.
         ]
         read_only_fields = ['id', 'status']
+
+
+
+class SaleReturnItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SaleReturnItem
+        fields = ['id', 'sale_item', 'quantity', 'refund_amount']
+        read_only_fields = ['refund_amount']
+
+    def validate(self, data):
+        sale_item = data['sale_item']
+        qty = data['quantity']
+        if qty <= 0:
+            raise serializers.ValidationError("Return quantity must be greater than 0")
+        if qty > sale_item.remaining_quantity:
+            raise serializers.ValidationError(
+                f"Cannot return {qty}. Only {sale_item.remaining_quantity} left to return."
+            )
+        return data
+
+
+class SaleReturnSerializer(serializers.ModelSerializer):
+    items = SaleReturnItemSerializer(many=True)
+
+    class Meta:
+        model = SaleReturn
+        fields = ['id', 'sale', 'return_date', 'reason', 'refund_method',
+                  'total_refund_amount', 'items']
+        read_only_fields = ['total_refund_amount']
+
+    @transaction.atomic
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        sale_return = SaleReturn.objects.create(**validated_data)
+        for item in items_data:
+            SaleReturnItem.objects.create(sale_return=sale_return, **item)
+        sale_return.refresh_from_db()
+        return sale_return
+
+
+class PurchaseReturnItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseReturnItem
+        fields = ['id', 'purchase_item', 'quantity', 'refund_amount']
+        read_only_fields = ['refund_amount']
+
+    def validate(self, data):
+        purchase_item = data['purchase_item']
+        qty = data['quantity']
+        if qty <= 0:
+            raise serializers.ValidationError("Return quantity must be greater than 0")
+        if qty > purchase_item.remaining_quantity:
+            raise serializers.ValidationError(
+                f"Cannot return {qty}. Only {purchase_item.remaining_quantity} left to return."
+            )
+        return data
+
+
+class PurchaseReturnSerializer(serializers.ModelSerializer):
+    items = PurchaseReturnItemSerializer(many=True)
+
+    class Meta:
+        model = PurchaseReturn
+        fields = ['id', 'purchase', 'return_date', 'reason', 'total_refund_amount', 'items']
+        read_only_fields = ['total_refund_amount']
+
+    @transaction.atomic
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        purchase_return = PurchaseReturn.objects.create(**validated_data)
+        for item in items_data:
+            PurchaseReturnItem.objects.create(purchase_return=purchase_return, **item)
+        purchase_return.refresh_from_db()
+        return purchase_return

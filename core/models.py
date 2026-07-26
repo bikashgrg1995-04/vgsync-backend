@@ -260,6 +260,13 @@ class PurchaseItem(models.Model):
     quantity = models.IntegerField()
     price = models.FloatField()
     sale_price = models.FloatField(default=0)
+    returned_quantity = models.IntegerField(default=0)
+    returned_at = models.DateTimeField(null=True, blank=True)      # 👈 थप्नुस्
+    return_reason = models.TextField(blank=True, null=True)         # 👈 थप्नुस्
+
+    @property
+    def remaining_quantity(self):
+        return self.quantity - self.returned_quantity
 
     def __str__(self):
         return f"{self.item.name} x {self.quantity} @ {self.price}"
@@ -322,7 +329,8 @@ class Sale(models.Model):
     is_repair_job = models.BooleanField(default=False)
     is_accident = models.BooleanField(default=False)
     is_warranty_job = models.BooleanField(default=False)
-
+    is_fitting_job = models.BooleanField(default=False)
+    
     job_done_on_vehicle = models.TextField(blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
 
@@ -365,7 +373,7 @@ class Sale(models.Model):
         - Do NOT calculate money here
         """
 
-        if not self.is_servicing:
+        if not self.is_servicing and not self.is_fitting_job:
             self.labour_charge = 0
             self.km_driven = None
             self.job_card_no = None
@@ -382,6 +390,24 @@ class Sale(models.Model):
             self.is_warranty_job = False
             self.technician_name = None
             self.job_done_on_vehicle = None
+
+        if self.is_fitting_job:
+            # fitting job ले servicing-only fields चाहिँदैन, तर labour_charge र technician_name चाहिन्छ
+            self.km_driven = None
+            self.job_card_no = None
+            self.bike_registration_no = None
+            self.vehicle_type = None
+            self.vehicle_color = None
+            self.received_date = None
+            self.delivery_date = None
+            self.follow_up_date = None
+            self.post_service_feedback_date = None
+            self.is_free_servicing = False
+            self.is_repair_job = False
+            self.is_accident = False
+            self.is_warranty_job = False
+            self.job_done_on_vehicle = None
+            # labour_charge, technician_name जोगिन्छन्
 
         # auto follow-up (business rule OK here)
         if self.is_servicing and self.delivery_date:
@@ -410,12 +436,69 @@ class SaleItem(models.Model):
     quantity = models.IntegerField()
     sale_price = models.FloatField(default=0)
     total_price = models.FloatField(default=0)
+    returned_quantity = models.IntegerField(default=0)
+    returned_at = models.DateTimeField(null=True, blank=True)      # 👈 NEW
+    return_reason = models.TextField(blank=True, null=True)         # 👈 NEWs
 
     def save(self, *args, **kwargs):
         self.total_price = self.quantity * self.sale_price
         super().save(*args, **kwargs)
 
+    @property
+    def remaining_quantity(self):
+        return self.quantity - self.returned_quantity
 
+
+
+# ------------------ Sale Return ------------------
+class SaleReturn(models.Model):
+    REFUND_METHOD_CHOICES = (('cash', 'Cash'), ('online', 'Online'), ('adjust', 'Adjust in Sale'))
+
+    sale = models.ForeignKey(Sale, related_name='returns', on_delete=models.CASCADE)
+    return_date = models.DateTimeField(default=timezone.now)
+    reason = models.TextField(blank=True, null=True)
+    refund_method = models.CharField(max_length=20, choices=REFUND_METHOD_CHOICES, default='adjust')
+    total_refund_amount = models.FloatField(default=0)  # sum of items, auto-calculated
+    created_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Return #{self.id} for Sale #{self.sale_id}"
+
+
+class SaleReturnItem(models.Model):
+    sale_return = models.ForeignKey(SaleReturn, related_name='items', on_delete=models.CASCADE)
+    sale_item = models.ForeignKey(SaleItem, related_name='return_entries', on_delete=models.CASCADE)
+    quantity = models.IntegerField()
+    refund_amount = models.FloatField(default=0)  # quantity * sale_item.sale_price (calculated)
+
+    def save(self, *args, **kwargs):
+        self.refund_amount = self.quantity * self.sale_item.sale_price
+        super().save(*args, **kwargs)
+
+
+# ------------------ Purchase Return ------------------
+class PurchaseReturn(models.Model):
+    purchase = models.ForeignKey(Purchase, related_name='returns', on_delete=models.CASCADE)
+    return_date = models.DateTimeField(default=timezone.now)
+    reason = models.TextField(blank=True, null=True)
+    total_refund_amount = models.FloatField(default=0)
+    created_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Return #{self.id} for Purchase #{self.purchase_id}"
+
+
+class PurchaseReturnItem(models.Model):
+    purchase_return = models.ForeignKey(PurchaseReturn, related_name='items', on_delete=models.CASCADE)
+    purchase_item = models.ForeignKey(PurchaseItem, related_name='return_entries', on_delete=models.CASCADE)
+    quantity = models.IntegerField()
+    refund_amount = models.FloatField(default=0)
+
+    def save(self, *args, **kwargs):
+        self.refund_amount = self.quantity * self.purchase_item.price
+        super().save(*args, **kwargs)
 
 # ------------------ Order ------------------
 class Order(models.Model):

@@ -7,6 +7,11 @@ from rest_framework_simplejwt.views import (
 
 from .views import (
     # ================= ViewSets =================
+    PurchaseReturnViewSet,
+    SaleReturnViewSet,
+
+    SaleItemViewSet,
+    PurchaseItemViewSet,
     UserViewSet,
     SupplierViewSet,
     CategoryViewSet,
@@ -60,8 +65,19 @@ router.register(r'stocks', StockViewSet, basename='stock')
 # ---------------- Purchase ----------------
 router.register(r'purchases', PurchaseViewSet, basename='purchase')
 
+# ---------------- Purchase Items (return endpoint) ----------------
+router.register(r'purchase-items', PurchaseItemViewSet, basename='purchase-item')
+
 # ---------------- Sale ----------------
 router.register(r'sales', SaleViewSet, basename='sale')
+
+# ---------------- Sale Items (return endpoint) ----------------
+router.register(r'sale-items', SaleItemViewSet, basename='sale-item')   # 👈 THIS WAS MISSING
+
+
+# urls.py
+router.register(r'sale-returns', SaleReturnViewSet, basename='sale-return')
+router.register(r'purchase-returns', PurchaseReturnViewSet, basename='purchase-return')
 
 # ---------------- Orders ----------------
 router.register(r'orders', OrderViewSet, basename='order')
