@@ -103,7 +103,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Purchase
         fields = (
-          'id', 'supplier', 'date', 'created_by',
+          'id', 'supplier', 'date', 'bill_no', 'created_by',
             'grand_total',
             'discount_percentage', 'discount_amount', 'amount_before_transit_discount',   # ✅ NEW
             'transit_discount_percentage', 'transit_discount_amount',                      # ✅ NEW
@@ -632,7 +632,7 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PurchaseReturn
-        fields = ['id', 'purchase', 'return_date', 'reason', 'total_refund_amount', 'items']
+        fields = ['id', 'purchase', 'bill_no', 'return_date', 'reason', 'total_refund_amount', 'items']
         read_only_fields = ['total_refund_amount']
 
     @transaction.atomic

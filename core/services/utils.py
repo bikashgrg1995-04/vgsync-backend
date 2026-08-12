@@ -238,31 +238,3 @@ def get_bike_sale_total_paid(bike_sale):
         return 0
     return 0
 
-
-def resolve_sale_paid_status(net, paid):
-    if paid <= 0:
-        return 'not_paid'
-    if paid >= net:
-        return 'paid'
-    return 'partial'
-
-
-def _recalc_sale_after_return(sale_id):
-    sale = Sale.objects.filter(pk=sale_id).first()
-    if not sale:
-        return
-
-    total_returned_amount = sale.items.aggregate(
-        total=Sum(F('returned_quantity') * F('sale_price'))
-    )['total'] or 0
-
-    new_net = max(sale.grand_total - sale.discount_amount - total_returned_amount, 0)
-    paid = min(sale.paid_amount, new_net)
-    remaining = new_net - paid
-
-    Sale.objects.filter(pk=sale_id).update(
-        net_total=new_net,
-        paid_amount=paid,
-        remaining_amount=remaining,
-        is_paid=resolve_sale_paid_status(new_net, paid),
-    )

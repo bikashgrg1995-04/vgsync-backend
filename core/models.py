@@ -227,6 +227,7 @@ class Stock(models.Model):
 class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
     date = models.DateTimeField(default=timezone.now)
+    bill_no = models.CharField(max_length=50, blank=True, null=True)
 
     grand_total = models.FloatField(default=0)
 
@@ -481,6 +482,7 @@ class SaleReturnItem(models.Model):
 class PurchaseReturn(models.Model):
     purchase = models.ForeignKey(Purchase, related_name='returns', on_delete=models.CASCADE)
     return_date = models.DateTimeField(default=timezone.now)
+    bill_no = models.CharField(max_length=50, blank=True, null=True)
     reason = models.TextField(blank=True, null=True)
     total_refund_amount = models.FloatField(default=0)
     created_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
