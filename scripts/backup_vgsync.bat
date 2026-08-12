@@ -1,20 +1,25 @@
 @echo off
+chcp 65001 >nul
 title VGSync Safe DB Backup (dumpdata)
 
 :: ---- CONFIG ----
-set PROJECT_DIR=D:\Projects\django\vgsync-backend
-set BACKUP_DIR=D:\Projects\django\vgsync-backend\backups
-set PYTHON=D:\Projects\django\vgsync-backend\env\Scripts\python.exe
+set PROJECT_DIR=D:\vgsync\vgsync-backend
+set BACKUP_DIR=D:\vgsync\vgsync-backend\backups
+set PYTHON=D:\vgsync\vgsync-backend\venv\Scripts\python.exe
+
+:: ---- FORCE UTF-8 ENCODING FOR PYTHON ----
+set PYTHONIOENCODING=utf-8
+set PYTHONUTF8=1
 
 :: ---- VALIDATION ----
 if not exist "%PROJECT_DIR%\manage.py" (
-    echo ❌ manage.py not found in PROJECT_DIR
+    echo manage.py not found in PROJECT_DIR
     pause
     exit /b
 )
 
 if not exist "%PYTHON%" (
-    echo ❌ Python not found at:
+    echo Python not found at:
     echo %PYTHON%
     pause
     exit /b
@@ -37,9 +42,9 @@ cd /d "%PROJECT_DIR%"
  > "%TODAY_BACKUP%\data.json"
 
 if errorlevel 1 (
-    echo ❌ DB dump failed!
+    echo DB dump failed!
 ) else (
-    echo ✅ DB dump completed successfully
+    echo DB dump completed successfully
 )
 
 pause

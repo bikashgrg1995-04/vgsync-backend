@@ -3,6 +3,9 @@ from datetime import timedelta
 from django.db import transaction
 from django.db.models import F
 from django.core.paginator import Paginator
+from django.http import HttpResponse
+import openpyxl
+from openpyxl.styles import Alignment, Font, PatternFill
 from rest_framework import viewsets, filters, status, generics
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
@@ -303,6 +306,46 @@ def stock_excel_upload_api(request):
 @permission_classes([IsAuthenticated])
 def order_excel_upload_api(request):
     return handle_excel_upload(request.FILES.get("file"), upload_order_excel)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def stock_excel_export_api(request):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Stock"
+
+    headers = ["Item No", "Name", "Model", "Category", "Quantity", "MRP"]
+
+    header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    # tenant/company filter छ भने थप्नुहोस्, जस्तै:
+    # stocks = Stock.objects.filter(company=request.user.company).select_related('category')
+    stocks = Stock.objects.all().select_related('category')
+
+    for row_num, stock in enumerate(stocks, start=2):
+        ws.cell(row=row_num, column=1, value=stock.item_no)
+        ws.cell(row=row_num, column=2, value=stock.name)
+        ws.cell(row=row_num, column=3, value=getattr(stock, 'model', '') or '')
+        ws.cell(row=row_num, column=4, value=stock.category.name if stock.category else '')
+        ws.cell(row=row_num, column=5, value=stock.stock)
+        ws.cell(row=row_num, column=6, value=stock.purchase_price)
+    for col_num, header in enumerate(headers, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_num)].width = max(len(header) + 4, 15)
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = 'attachment; filename="stock_export.xlsx"'
+    wb.save(response)
+    return response
 
 
 # ===================== BIKE SALE =====================

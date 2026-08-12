@@ -27,7 +27,7 @@ POST_FEEDBACK_DAYS = 3
 # TOTAL HELPERS
 # =====================================================
 def calculate_purchase_net_total(purchase):
-    return (purchase.grand_total or 0) - (purchase.discount_amount or 0)
+    return round((purchase.after_discount_amount or 0) + (purchase.vat_amount or 0), 2)
 
 
 def calculate_sale_net_total(sale):
@@ -83,28 +83,17 @@ def adjust_stock_on_purchase_save(sender, instance, **kwargs):
 @receiver(pre_delete, sender=PurchaseItem)
 @transaction.atomic
 def restore_stock_on_purchase_delete(sender, instance, **kwargs):
-    purchase = instance.purchase
-
+    # Reverse the stock that was added during purchase
     Stock.objects.select_for_update().filter(
-            pk=instance.item_id
-        ).update(stock=F('stock') - instance.quantity)
+        pk=instance.item_id
+    ).update(stock=F('stock') - instance.quantity)
 
-    latest = (
-            PurchaseItem.objects
-            .filter(item_id=instance.item_id)
-            .exclude(pk=instance.pk)
-            .order_by('-id')
-            .first()
-        )
-
-    Stock.objects.filter(pk=instance.item_id).update(
-            purchase_price=latest.price if latest else 0
-        )
-
+    # update purchase total safely
+    purchase = instance.purchase
     purchase.net_total = calculate_purchase_net_total(purchase)
     purchase.save(update_fields=['net_total'])
 
-
+    
 # =====================================================
 # PURCHASE → EXPENSE
 # =====================================================

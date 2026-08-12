@@ -103,10 +103,13 @@ class PurchaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Purchase
         fields = (
-            'id', 'supplier', 'date', 'created_by',
-            'grand_total', 'discount_amount', 'net_total',
+            'id', 'supplier', 'date', 'bill_no', 'created_by',
+            'grand_total', 'discount_percentage', 'discount_amount',
+            'after_discount_amount',   # ✅ NEW
+            'vat_amount',              # ✅ NEW
+            'net_total',               # now = after_discount + vat
             'paid_amount', 'remaining_amount', 'status',
-            'is_migrated',  # migration flag
+            'paid_from', 'is_migrated',
             'items',
         )
 
@@ -189,7 +192,9 @@ class SaleReadSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             'id', 'sale_date', 'customer_name', 'contact_no',  'bill_no',
-            'handled_by', 'is_servicing',
+            'handled_by', 'is_servicing', 'is_fitting',   
+            'labour_charge',  
+            'paid_from',        
 
             # totals
             'grand_total', 'discount_percentage', 'discount_amount', 'net_total',
@@ -231,7 +236,7 @@ class StockSaleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sale_date', 'customer_name', 'contact_no',
             'bill_no', 'remarks',
-            'grand_total', 'discount_percentage', 'discount_amount',
+            'grand_total', 'discount_percentage', 'discount_amount', 'is_fitting', 'labour_charge',
             'net_total',
             'paid_amount', 'remaining_amount', 'is_paid', 'paid_from',
             'handled_by', 'items'

@@ -23,3 +23,5 @@ db.sqlite3
 
 # Environment
 .env
+
+backups/

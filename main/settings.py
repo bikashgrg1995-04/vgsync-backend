@@ -196,3 +196,9 @@ LOGGING = {
 # Default Auto Field
 # --------------------------------------------------
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# --------------------------------------------------
+# SAFE RESTORE MODE (IMPORTANT FOR loaddata)
+# --------------------------------------------------
+SKIP_SIGNALS = os.environ.get('SKIP_SIGNALS', 'False') == '1'

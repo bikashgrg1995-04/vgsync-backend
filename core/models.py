@@ -227,14 +227,17 @@ class Stock(models.Model):
 class Purchase(models.Model):
     supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE)
     date = models.DateTimeField(default=timezone.now)
+    bill_no = models.CharField(max_length=100, blank=True, null=True)
 
-    # FINANCIAL (UI CALCULATED)
-    net_total = models.FloatField(default=0)            # frontend bata pathaune
+    # FINANCIAL
+    grand_total = models.FloatField(default=0)           # sum of all items (qty * price)
     discount_percentage = models.FloatField(default=0)
     discount_amount = models.FloatField(default=0)
-    grand_total = models.FloatField(default=0)          # frontend bata pathaune
-    paid_amount = models.FloatField(default=0)          # frontend bata pathaune
-    remaining_amount = models.FloatField(default=0)     # frontend bata pathaune
+    after_discount_amount = models.FloatField(default=0)  # ✅ NEW: grand_total - discount_amount
+    vat_amount = models.FloatField(default=0)             # ✅ NEW: after_discount_amount * 13%
+    net_total = models.FloatField(default=0)              # ✅ REDEFINED: after_discount + vat (final payable)
+    paid_amount = models.FloatField(default=0)
+    remaining_amount = models.FloatField(default=0)
 
     STATUS_CHOICES = [('pending','Pending'),('partial','Partial'),('paid','Paid')]
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
@@ -294,6 +297,7 @@ class Sale(models.Model):
 
     # ---------------- SALE TYPE ----------------
     is_servicing = models.BooleanField(default=False)
+    is_fitting = models.BooleanField(default=False)
 
     # ---------------- SERVICE INFO ----------------
     km_driven = models.IntegerField(blank=True, null=True)
@@ -361,7 +365,6 @@ class Sale(models.Model):
         """
 
         if not self.is_servicing:
-            self.labour_charge = 0
             self.km_driven = None
             self.job_card_no = None
             self.bike_registration_no = None
@@ -377,6 +380,10 @@ class Sale(models.Model):
             self.is_warranty_job = False
             self.technician_name = None
             self.job_done_on_vehicle = None
+
+         # Fitting — only labour_charge, no service fields
+        if not self.is_fitting and not self.is_servicing:
+            self.labour_charge = 0  # already cleared above, consistent
 
         # auto follow-up (business rule OK here)
         if self.is_servicing and self.delivery_date:
@@ -468,7 +475,7 @@ class FollowUpDashboard(models.Model):
         ("completed", "Completed"),
         ("terminated", "Terminated"),
     )
-    sale = models.OneToOneField(Sale, on_delete=models.CASCADE, null=True, blank=True)
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, null=True, blank=True)
     assigned_to = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
 
     customer_name = models.CharField(max_length=100)
