@@ -107,7 +107,7 @@ class StockAdmin(admin.ModelAdmin):
 @admin.register(Purchase)
 class PurchaseAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'supplier', 'date',
+        'id', 'supplier', 'bill_no', 'date',
         'grand_total', 'discount_amount', 'net_total',
         'paid_amount', 'remaining_amount', 'status'
     )

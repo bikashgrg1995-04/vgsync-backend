@@ -1,6 +1,8 @@
 # core/utils.py
 import re
 
+from django.db import models
+from django.db.models.aggregates import Sum
 from django.utils import timezone
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -9,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 import math
 
 import numpy as np
-from core.models import EmiTracker
+from core.models import EmiTracker, Sale
 
 
 def extract_item_no(value):
@@ -235,3 +237,4 @@ def get_bike_sale_total_paid(bike_sale):
             return float(emi_sum)
         return 0
     return 0
+
