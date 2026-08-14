@@ -10,11 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="purchase",
-            name="bill_no",
-            field=models.CharField(blank=True, max_length=50, null=True),
-        ),
+      
         migrations.AddField(
             model_name="purchasereturn",
             name="bill_no",

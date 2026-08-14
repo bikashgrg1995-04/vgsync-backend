@@ -238,6 +238,11 @@ class Purchase(models.Model):
     transit_discount_percentage = models.FloatField(default=0)     # ✅ NEW
     transit_discount_amount = models.FloatField(default=0)         # ✅ NEW
 
+     # ✅ NEW — VAT fields
+    after_discount_amount = models.FloatField(default=0)   # discount/transit पछिको amount, VAT लगाउनु अघि
+    vat_percentage = models.FloatField(default=13)          # Nepal standard 13%, चाहेको value दिन मिल्छ
+    vat_amount = models.FloatField(default=0)
+
     net_total = models.FloatField(default=0)          # यो अब final amount हो (transit पछि)
     paid_amount = models.FloatField(default=0)
     remaining_amount = models.FloatField(default=0)
@@ -307,6 +312,7 @@ class Sale(models.Model):
 
     # ---------------- SALE TYPE ----------------
     is_servicing = models.BooleanField(default=False)
+    is_fitting = models.BooleanField(default=False)
 
     # ---------------- SERVICE INFO ----------------
     km_driven = models.IntegerField(blank=True, null=True)
@@ -558,7 +564,7 @@ class FollowUpDashboard(models.Model):
         ("completed", "Completed"),
         ("terminated", "Terminated"),
     )
-    sale = models.OneToOneField(Sale, on_delete=models.CASCADE, null=True, blank=True)
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, null=True, blank=True)
     assigned_to = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
 
     customer_name = models.CharField(max_length=100)

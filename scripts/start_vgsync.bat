@@ -8,8 +8,8 @@ echo Starting VGSync local server...
 REM Allow PowerShell scripts temporarily
 powershell -Command "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass"
 
-REM Navigate to your project directory
-cd /d "D:\vgsync\vgsync-backend"
+REM Navigate to your project directory (edit path below)
+cd /d "C:\Users\ADMIN\vgsync-backend"
 
 REM Activate virtual environment
 call venv\Scripts\activate

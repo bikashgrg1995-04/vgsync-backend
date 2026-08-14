@@ -108,7 +108,7 @@ class StockAdmin(admin.ModelAdmin):
 class PurchaseAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'supplier', 'bill_no', 'date',
-        'grand_total', 'discount_amount', 'net_total',
+        'grand_total', 'discount_amount', 'vat_amount','net_total',
         'paid_amount', 'remaining_amount', 'status'
     )
     inlines = [PurchaseItemInline]

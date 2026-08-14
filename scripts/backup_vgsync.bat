@@ -3,13 +3,9 @@ chcp 65001 >nul
 title VGSync Safe DB Backup (dumpdata)
 
 :: ---- CONFIG ----
-set PROJECT_DIR=D:\vgsync\vgsync-backend
-set BACKUP_DIR=D:\vgsync\vgsync-backend\backups
-set PYTHON=D:\vgsync\vgsync-backend\venv\Scripts\python.exe
-
-:: ---- FORCE UTF-8 ENCODING FOR PYTHON ----
-set PYTHONIOENCODING=utf-8
-set PYTHONUTF8=1
+set PROJECT_DIR=C:\Users\ADMIN\vgsync-backend
+set BACKUP_DIR=C:\Users\ADMIN\vgsync-backend\backups
+set PYTHON=C:\Users\ADMIN\vgsync-backend\env\Scripts\python.exe
 
 :: ---- VALIDATION ----
 if not exist "%PROJECT_DIR%\manage.py" (
